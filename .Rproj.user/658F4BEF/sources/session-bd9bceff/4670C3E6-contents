@@ -1,0 +1,151 @@
+---
+title: "endemism"
+format: html
+editor: visual
+---
+
+```{r}
+
+# install packages
+install.packages("sp")
+install.packages("maps")
+install.packages("maptools")
+
+# load libraries
+library(sp)
+library(maps)
+library(maptools)
+
+# generate australia map from maps package
+australia_map <- map("world", "Australia", fill = TRUE, plot = FALSE)
+
+#convert to polygon using maptools package
+australia_polygon <- map2SpatialPolygons(australia_map, IDs = australia_map$names, proj4string = CRS("+proj=longlat +datum=WGS84"))
+ 
+# create points df
+points <- data.frame(x = c(151, 150, 100), y = c(-33, 125, -20))
+
+# check if points fall within australia_polygon - but only polygon 1 which is mainland australia
+within_polygon <- sapply(1:nrow(points), function(i) {
+  point.in.polygon(points$x[i], points$y[i], australia_polygon@polygons[[1]]@Polygons[[1]]@coords[,1], australia_polygon@polygons[[1]]@Polygons[[1]]@coords[,2])
+})
+
+within_polygon
+
+
+```
+
+```{r}
+
+#mapping polygon 1 because i was like wahhhh what are these 43 polygons? 
+
+library(ggplot2)
+
+# create df with the x and y coordinates of polygon
+polygon_data <- data.frame(x = australia_polygon@polygons[[1]]@Polygons[[1]]@coords[, 1],
+                           y = australia_polygon@polygons[[1]]@Polygons[[1]]@coords[, 2])
+
+# map
+ggplot(polygon_data, aes(x = x, y = y)) +
+  geom_polygon() +
+  coord_equal() +
+  labs(x = "longitude", y = "latitude") +
+  theme_bw()
+
+
+
+```
+
+```{r}
+
+#plotting polygon 2 
+
+library(ggplot2)
+
+# create df with the x and y coordinates of polygon 2
+polygon_data <- data.frame(x = australia_polygon@polygons[[2]]@Polygons[[1]]@coords[, 1],
+                           y = australia_polygon@polygons[[2]]@Polygons[[1]]@coords[, 2])
+
+# map polygon 2
+ggplot(polygon_data, aes(x = x, y = y)) +
+  geom_polygon() +
+  coord_equal() +
+  labs(x = "longitude", y = "latitude") +
+  theme_bw()
+
+
+```
+
+```{r}
+
+# check if points are within ALL polygons
+
+# install packages
+install.packages("sp")
+install.packages("maps")
+install.packages("maptools")
+
+# load libraries
+library(sp)
+library(maps)
+library(maptools)
+
+# generate australia map from maps package
+australia_map <- map("world", "Australia", fill = TRUE, plot = FALSE)
+
+#convert to polygon using maptools package
+australia_polygon <- map2SpatialPolygons(australia_map, IDs = australia_map$names, proj4string = CRS("+proj=longlat +datum=WGS84"))
+ 
+# define points - first point is in sydney, fourth is in tasmania, others are outside aus
+points <- data.frame(x = c(151, 150, 100, 147), y = c(-33, 125, -20, -42))
+
+# Create a logical vector to store the results for each point
+within_polygon <- logical(nrow(points))
+
+# Iterate over each polygon
+for (i in 1:length(polygons)) {
+  # Extract the coordinates of the current polygon
+  polygon_coords <- australia_polygon@polygons[[i]]@Polygons[[1]]@coords
+  
+  # Check if each point is within the current polygon
+  within_polygon <- within_polygon | sapply(1:nrow(points), function(j) {
+    point.in.polygon(points$x[j], points$y[j], polygon_coords[,1], polygon_coords[,2])
+  })}
+  
+within_polygon
+
+#TRUE FALSE FALSE TRUE
+  
+```
+
+```{r}
+#tried to map all polygons at once but havent quite got there yet 
+
+# Create an empty data frame to store the polygon data
+polygon_data <- data.frame(x = numeric(0), y = numeric(0))
+
+# Iterate over the polygons and append their coordinates to the data frame
+for (i in 1:43) {
+  polygon_coords <- australia_polygon@polygons[[1]]@Polygons[[i]]@coords
+  polygon_data <- rbind(polygon_data, data.frame(x = polygon_coords[, 1], y = polygon_coords[, 2]))
+}
+
+# Create the map using ggplot2
+ggplot(polygon_data, aes(x = x, y = y)) +
+  geom_polygon() +
+  coord_equal() +
+  labs(x = "longitude", y = "latitude") +
+  theme_bw()
+
+```
+
+```{r}
+
+ggplot() +
+  geom_sf(data = bioregions_df, aes(fill = REG_NAME_7)) +  
+  labs(x = "longitude", y = "latitude", fill = "Bioregion") +  
+  coord_sf(ylim = c(-45, -10), xlim = c(110, 155)) +
+  theme_void()
+```
+
+\

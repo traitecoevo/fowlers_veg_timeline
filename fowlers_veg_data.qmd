@@ -1,0 +1,47 @@
+---
+title: "fowlers_veg_data"
+format: html
+editor: visual
+---
+
+## Fowlers Gap Vegetation
+
+```{r}
+library(devtools)
+install_github("ternaustralia/ausplotsR", build_vignettes = TRUE, dependencies = TRUE)
+library(ausplotsR)
+```
+
+```{r}
+#chose the below 10 plots for proximity to fowlers gap based on THIS map of plots https://www.tern.org.au/news-gap-filling/
+
+plots_oi <- c('NSABHC0009', 'NSABHC0010', 'NSABHC0011', 'NSABHC0012', 'NSABHC0013', 'NSABHC0014', 'NSABHC0023', 'NSABHC0024', 'NSABHC0028', 'NSABHC0029')
+
+veg <- get_ausplots(plots_oi, veg.vouchers = T)
+
+#view site and visit date
+veg$site.info[ , c(2, 15)] #only NSABHC0009 and NSABHC0012 have been visited twice (2012, 2016), others just once 
+
+#plant species in plots 
+plants <- veg$veg.vouch
+
+write.csv(plants, 'data/veg_species_in_plots_oi.csv')
+```
+
+## ALA data - plants within 20km of Fowlers Gap Research Station
+
+```{r}
+#all plants within 20km radius of Fowlers Gap RS
+ALA_plants <- read.csv("data/FG_20km_all_plants.csv")
+
+```
+
+## BOM Rainfall - Fowlers Gap AWS 2005 - 2023, Broken Hill Sturts Meadow 1895 - 2014
+
+```{r}
+#Fowlers Gap AWS  rainfall from http://www.bom.gov.au/jsp/ncc/cdio/weatherData/av?p_nccObsCode=139&p_display_type=dataFile&p_stn_num=046128
+fowlers_rain <- read.csv("data/Fowlers_AWS_Monthly_Rainfall.csv")
+
+#Broken Hill Sturts Meadow (closest BOM station after FG) from http://www.bom.gov.au/jsp/ncc/cdio/weatherData/av?p_nccObsCode=139&p_display_type=dataFile&p_stn_num=046033
+broken_sturts_rain <- read.csv("data/Broken_Hill_Sturts_Meadow_Monthly_Rainfall.csv")
+```

@@ -1,0 +1,33 @@
+"0","veg <- get_ausplots(plots_oi, veg.vouchers = T)
+"
+"2","Calling the database. Please wait...
+"
+"2","search
+"
+"2","User-supplied Plot_IDs located.
+"
+"2","Calling the database. Please wait...
+"
+"2","site
+"
+"2","Calling the database. Please wait...
+"
+"2","veg_voucher
+"
+"0","veg <- get_ausplots(plots_oi, veg.vouchers = T)"
+"2","Calling the database. Please wait...
+"
+"2","search
+"
+"2","User-supplied Plot_IDs located.
+"
+"2","Calling the database. Please wait...
+"
+"2","site
+"
+"2","Calling the database. Please wait...
+"
+"2","veg_voucher
+"
+"0","#view site and visit date"
+"0","veg$site.info[ , c(2, 15)] #only NSABHC0009 and NSABHC0012 have been visited twice (2012, 2016)"
