@@ -13,6 +13,10 @@ library(galah)
 library(tidyverse)
 library(austraits)
 library(ggthemes)
+library(here)
+library(devtools)
+install_github("ternaustralia/ausplotsR", build_vignettes = TRUE, dependencies = TRUE)
+library(ausplotsR)
 
 galah_config(email = 'adelegemmell@hotmail.com')
 
@@ -93,7 +97,7 @@ length(unique(annual_species_data$taxon_name))
 #4427
 
 fowlers_veg$in_austraits_lf <- fowlers_veg$scientificName %in% annual_perennial_traits$taxon_name
-#206 species in the fowlers_veg df are not in austraits 'lifeform' - mostly due to not being a species
+#206 species in the fowlers_veg df are not in austraits 'lifeform' - mostly due to not being a species (genus, family etc)
 
 fowlers_life_form <- annual_perennial_traits %>%
   filter(taxon_name %in% fowlers_veg$scientificName)
@@ -108,7 +112,8 @@ fowlers_veg <- fowlers_veg %>%
 fowlers_veg <- fowlers_veg %>%
   mutate(simp_lf = case_when(
     grepl('annual', most_common_lifeform, ignore.case = TRUE) ~ 'annual',
-    grepl('perennial', most_common_lifeform, ignore.case = TRUE) ~ 'perennial'
+    grepl('perennial', most_common_lifeform, ignore.case = TRUE) ~ 'perennial',
+    TRUE ~ most_common_lifeform
   ))
   
 ```
@@ -123,4 +128,156 @@ fowlers_veg %>%
   theme(axis.title = element_text())
 
 ggsave('maps/fowlers_ala_lf.png')
+```
+
+```{r}
+vegetation_map_FG <- st_read(here('data/veg_fg_1987', 'vegetation.shp'))
+
+plot(vegetation_map_FG)
+
+ggplot() +
+  geom_sf(data = vegetation_map_FG, aes(color = VEGETATION))
+  
+```
+
+```{r}
+site <- st_read(here('data/veg_fg_1987', 'Fowlers_Gap_Ausplots.shp'))
+
+#transform to GDA2020 MGA 56 
+site <- st_transform(site, crs = 7856)
+
+emu_pen_poly <- site[1, ]
+
+emu_pen_poly %>%
+  ggplot() +
+  geom_sf()
+```
+
+```{r}
+emu_pen_2012 <- get_ausplots('NSABHC0009-53604', veg.vouchers = T, veg.PI = T)
+emu_pen_2012_PI <- emu_pen_2012$veg.PI
+
+emu_pen_2012_PI <- emu_pen_2012_PI %>%
+  mutate(Direction = ifelse(substr(transect, 1, 1) == "S", "NS", "EW"))
+
+#EW_tran <- emu_pen_PI1 %>% filter(Direction == "EW")
+
+#NS_tran <- emu_pen_PI1 %>% filter(Direction == "NS")
+
+emu_pen_2012_PI$x <- NA
+emu_pen_2012_PI$y <- NA
+
+emu_pen_2012_PI <- emu_pen_2012_PI %>%
+  mutate(
+    x = case_when(
+      Direction == 'EW' ~ point_number/100,
+      transect %in% c("S1-N1", "S2-N2", "S3-N3", "S4-N4", "S5-N5") ~ 
+        case_when(
+          transect == "S1-N1" ~ 0.10,
+          transect == "S2-N2" ~ 0.30,
+          transect == "S3-N3" ~ 0.50,
+          transect == "S4-N4" ~ 0.70,
+          transect == "S5-N5" ~ 0.90
+        ),
+      TRUE ~ x  # Keep the existing 'x' value for other cases
+    ),
+    y = case_when(
+      Direction == 'NS' ~ point_number/100,
+      transect %in% c("E1-W1", "E2-W2", "E3-W3", "E4-W4", "E5-W5") ~ 
+        case_when(
+          transect == "E1-W1" ~ 0.10,
+          transect == "E2-W2" ~ 0.30,
+          transect == "E3-W3" ~ 0.50,
+          transect == "E4-W4" ~ 0.70,
+          transect == "E5-W5" ~ 0.90
+        ),
+      TRUE ~ y  # Keep the existing 'y' value for other cases
+    )
+  )
+
+emu_pen_2012_PI %>% 
+  drop_na(herbarium_determination) %>%
+  ggplot(aes(x = x, y = y, shape = family, color = family)) +
+  geom_point() +
+  scale_shape_manual(values = c(1:19)) +
+  theme_classic() +
+  labs(y = 'West (m)', x = 'South (m)')
+
+```
+
+```{r}
+na.omit(emu_pen_2012_PI$herbarium_determination) %in% fowlers_life_form$taxon_name
+#most have lifeform data from austraits
+
+emu_pen_2012_PI <- emu_pen_2012_PI %>%
+  left_join(most_frequent_lifeform, by = c("herbarium_determination" = "taxon_name"))
+
+color_palette <- c('annual' = 'red', 'perennial' = '#da42f5', 'annual perennial' = "#42b0f5", 'annual short_lived_perennial' = "#4ef542", 'NA' = 'grey')
+
+emu_pen_2012_PI %>% 
+  drop_na(herbarium_determination) %>%
+  ggplot(aes(x = x, y = y, shape = family, color = most_common_lifeform)) +
+  geom_point() +
+  scale_shape_manual(values = c(1:19)) +
+  scale_color_manual(values = color_palette) +
+  theme_fivethirtyeight() +
+  labs(y = 'West (m)', x = 'South (m)')
+
+
+ggsave('maps_graphs/emu_ausplot_2012_lf.png', width = 10, height = 10, dpi = 320)
+```
+
+```{r}
+emu_pen_2016 <- get_ausplots('NSABHC0009-58026', veg.vouchers = T, veg.PI = T)
+emu_pen_2016_PI <- emu_pen_2016$veg.PI
+
+emu_pen_2016_PI <- emu_pen_2016_PI %>%
+  mutate(Direction = ifelse(substr(transect, 1, 1) %in% c('S', 'N'), "NS", "EW"))
+
+
+emu_pen_2016_PI$x <- NA
+emu_pen_2016_PI$y <- NA
+
+emu_pen_2016_PI <- emu_pen_2016_PI %>%
+  mutate(
+    x = case_when(
+      Direction == 'EW' ~ point_number/100,
+      transect %in% c("S1-N1", "N2-S2", "S3-N3", "N4-S4", "S5-N5") ~ 
+        case_when(
+          transect == "S1-N1" ~ 0.10,
+          transect == "N2-S2" ~ 0.30,
+          transect == "S3-N3" ~ 0.50,
+          transect == "N4-S4" ~ 0.70,
+          transect == "S5-N5" ~ 0.90
+        ),
+      TRUE ~ x  # Keep the existing 'x' value for other cases
+    ),
+    y = case_when(
+      Direction == 'NS' ~ point_number/100,
+      transect %in% c("W1-E1", "E2-W2", "W3-E3", "E4-W4", "E5-W5") ~ 
+        case_when(
+          transect == "W1-E1" ~ 0.10,
+          transect == "E2-W2" ~ 0.30,
+          transect == "W3-E3" ~ 0.50,
+          transect == "E4-W4" ~ 0.70,
+          transect == "E5-W5" ~ 0.90
+        ),
+      TRUE ~ y  # Keep the existing 'y' value for other cases
+    )
+  )
+
+emu_pen_2016_PI <- emu_pen_2016_PI %>%
+  left_join(most_frequent_lifeform, by = c("herbarium_determination" = "taxon_name"))
+
+emu_pen_2016_PI %>% 
+  drop_na(herbarium_determination) %>%
+  ggplot(aes(x = x, y = y, shape = family, color = most_common_lifeform)) +
+  geom_point() +
+  scale_shape_manual(values = c(1:19)) +
+  scale_color_manual(values = color_palette) +
+  theme_fivethirtyeight() +
+  labs(y = 'West (m)', x = 'South (m)')
+
+
+ggsave('maps_graphs/emu_ausplot_2016_lf.png', width = 10, height = 10, dpi = 320)
 ```
