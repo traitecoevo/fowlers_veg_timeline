@@ -1,0 +1,125 @@
+#Script developed for Andres Sutton to help converting point intercepts from Ausplots to PlotXY coordinates
+#Developed by Irene Martin-Fores
+#10th Jan 2024
+
+####################
+#load pacakges
+library(ausplotsR)
+library(readr)
+
+
+####################
+
+
+#read csv file sent by Carly
+Fowlers <- read.csv("U://Fowlers/Fowlers_sites.csv", header = TRUE, sep = ",", fileEncoding = "Latin1")
+str(Fowlers) #to check info and names
+
+
+Fowlers <- vegPI
+
+#extract only direction of the transect (no numbers)
+Fowlers$transect_direction <- gsub('[[:digit:]]+', '', Fowlers$transect)
+#extract only number of the transect (no direction)
+Fowlers$transect_number <- as.numeric(gsub(".*?([0-9]+).*", "\\1", Fowlers$transect))
+
+#create variable for fixed transect direction (to order them all transects in the same direction)
+Fowlers$transect_direction2 = NA 
+
+#create variable for fixed point number (inverse in some cases as if they had been collected in the same direction)
+Fowlers$point_number2 = NA #
+
+#create XY empty variables for plot XY coordinates
+Fowlers$X_plot = NA 
+Fowlers$Y_plot = NA
+
+#for loop to homogenise transects and numbers. It converts all E-W to W-E and all S-N to N-S
+for (i in 1:nrow(Fowlers)){
+  if (Fowlers[i,c("transect_direction")] == "E-W") {
+    Fowlers[i,c("point_number2")] = 101- Fowlers[i,c("point_number")] #if transect E-W, transect fixed is W-E and inverse numbers
+    Fowlers[i,c("transect_direction2")] = "W-E" #I think this line was missing
+  }
+  if (Fowlers[i,c("transect_direction")] == "W-E") {
+    Fowlers[i,c("point_number2")] = Fowlers[i,c("point_number")] #if transect W-E, all stays the same
+    Fowlers[i,c("transect_direction2")] = "W-E"
+  }
+  if (Fowlers[i,c("transect_direction")] == "N-S") {
+    Fowlers[i,c("point_number2")] = Fowlers[i,c("point_number")] #if transect N-S, all stays the same
+    Fowlers[i,c("transect_direction2")] = "N-S"
+  }
+  if (Fowlers[i,c("transect_direction")] == "S-N") {
+    Fowlers[i,c("point_number2")] = 101-Fowlers[i,c("point_number")] #if transect S-N, transect fixed is N-S and inverse numbers
+    Fowlers[i,c("transect_direction2")] = "N-S"
+  }
+}
+
+#for loop to assign plotXY coordinates to each point intercept
+for (i in 1:nrow(Fowlers)){
+  if (Fowlers[i,c("transect_direction2")] == "W-E") {
+    if (Fowlers[i,c("transect_number")] == "1"){
+      Fowlers[i,c("Y_plot")] <- 10
+      Fowlers[i,c("X_plot")] = Fowlers[i,c("point_number2")]
+    }
+    if (Fowlers[i,c("transect_number")] == "2"){
+      Fowlers[i,c("Y_plot")] <- 30
+      Fowlers[i,c("X_plot")] = Fowlers[i,c("point_number2")]
+    }
+    if (Fowlers[i,c("transect_number")] == "3"){
+      Fowlers[i,c("Y_plot")] <- 50
+      Fowlers[i,c("X_plot")] = Fowlers[i,c("point_number2")]
+    }
+    if (Fowlers[i,c("transect_number")] == "4"){
+      Fowlers[i,c("Y_plot")] <- 70
+      Fowlers[i,c("X_plot")] = Fowlers[i,c("point_number2")]
+    }
+    if (Fowlers[i,c("transect_number")] == "5"){
+      Fowlers[i,c("Y_plot")] <- 90
+      Fowlers[i,c("X_plot")] = Fowlers[i,c("point_number2")]
+    }
+  }
+  if (Fowlers[i,c("transect_direction2")] == "N-S") {
+    if (Fowlers[i,c("transect_number")] == "1"){
+      Fowlers[i,c("X_plot")] <- 10
+      Fowlers[i,c("Y_plot")] = Fowlers[i,c("point_number2")]
+    }
+    if (Fowlers[i,c("transect_number")] == "2"){
+      Fowlers[i,c("X_plot")] <- 30
+      Fowlers[i,c("Y_plot")] = Fowlers[i,c("point_number2")]
+    }
+    if (Fowlers[i,c("transect_number")] == "3"){
+      Fowlers[i,c("X_plot")] <- 50
+      Fowlers[i,c("Y_plot")] = Fowlers[i,c("point_number2")]
+    }
+    if (Fowlers[i,c("transect_number")] == "4"){
+      Fowlers[i,c("X_plot")] <- 70
+      Fowlers[i,c("Y_plot")] = Fowlers[i,c("point_number2")]
+    }
+    if (Fowlers[i,c("transect_number")] == "5"){
+      Fowlers[i,c("X_plot")] <- 90
+      Fowlers[i,c("Y_plot")] = Fowlers[i,c("point_number2")]
+    }
+  }
+}
+View(Fowlers)
+
+plot(Fowlers$X, Fowlers$Y, pch = 16, col = "blue", main = "Point Intercept plot XY Coordinates", xlab = "N-S", ylab = "W-E")
+
+#and then you just need to play with the values (for height, adjusting the cex in the plot function depending on the height) or with the classes (for growth form) of the variables you want to plot on the image
+#example for height
+Fowlers$Size <- runif(length(Fowlers$height), min = 0.01, max = 5)  # Adjust the size range as needed
+plot(Fowlers$X, Fowlers$Y, pch = 16, col = "blue", cex = (Fowlers$Size)/10, main = "Points with Variable Sizes", xlab = "X-axis", ylab = "Y-axis")
+
+#plot 3-D example of a site
+
+NSABHC0012_22 <- Fowlers %>% filter(site_location_visit_id==59100)
+
+library(plotly)
+plot_ly(x=NSABHC0012_22$X_plot, y=NSABHC0012_22$Y_plot, z=NSABHC0012_22$height, type="scatter3d", mode="markers", color=NSABHC0012_22$growth_form)
+
+
+#end of script
+
+
+#end of script
+#Please, let me know if you need anything else. I'm always happy to collaborate!
+#I hope this is useful!

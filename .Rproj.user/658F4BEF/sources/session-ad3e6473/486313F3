@@ -1,0 +1,28 @@
+{
+    "id": "486313F3",
+    "path": null,
+    "project_path": null,
+    "type": "object_explorer",
+    "hash": "0",
+    "contents": "",
+    "dirty": false,
+    "created": 1707265747035.0,
+    "source_on_save": false,
+    "relative_order": 10,
+    "properties": {
+        "id": "f2af8cda7c3a4fbea16f96ce728a0714",
+        "name": "veg",
+        "title": "veg",
+        "language": "R",
+        "source_window_id": "",
+        "Source": "Source"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 3548067076488918113,
+    "encoding": "",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1707265747035,
+    "read_only": false,
+    "read_only_alternatives": []
+}

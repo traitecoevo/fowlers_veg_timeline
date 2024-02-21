@@ -1,0 +1,451 @@
+---
+title: "fowlers_veg"
+format: html
+editor: visual
+---
+
+Use Fowlers Gap kml to set boundary zone for ALA occurences
+
+```{r}
+library(sf)
+library(ggplot2)
+library(galah)
+library(tidyverse)
+library(austraits)
+library(ggthemes)
+library(here)
+library(devtools)
+install_github("ternaustralia/ausplotsR", build_vignettes = TRUE, dependencies = TRUE)
+library(ausplotsR)
+
+galah_config(email = 'adelegemmell@hotmail.com')
+
+FG_area <- st_read('data/unsw-fowlers.kml')
+
+fowlers_veg <- galah_call() |>
+  galah_identify("plantae") |>
+  galah_geolocate(FG_area) |>
+  atlas_occurrences()
+
+select <- c(colnames(fowlers_veg)[1:8], "genus", "family")
+  
+fowlers_veg <- galah_call() |>
+  galah_identify("plantae") |>
+  galah_select(select) |>
+  galah_geolocate(FG_area) |>
+  atlas_occurrences()
+
+fowlers_veg$year <- as.numeric(substr(fowlers_veg$eventDate, 1, 4))
+
+fowlers_veg %>%
+  filter(year >= 1940) %>%
+  ggplot() +
+  geom_bar(aes(x = year, fill = family)) +
+  theme_classic() 
+
+#ggsave('maps/family_occurence.png', width = 15, height = 7)
+
+install.packages("devtools")
+devtools::install_github("gdauby/ConR")
+library(ConR)
+
+threatflora <- read.csv('data/EPBC Threatened Flora plus SA.csv')
+
+
+veg_count <- fowlers_veg %>%
+  group_by(scientificName) %>%
+  summarise(count = n()) 
+
+ausplot_counts <- vegPI %>%
+  group_by(herbarium_determination) %>%
+  summarise(count = n())
+
+# Function to find the matching conservation status for a given species name and status column
+findConservationStatus <- function(species_name, status_column) {
+  matching_index <- which(species_name %in% threatflora$scientificName |
+                          species_name %in% threatflora$EPBC_Name |
+                          species_name %in% threatflora$NSW_Name |
+                          species_name %in% threatflora$IUCN_Name |
+                          species_name %in% threatflora$SA_Name)
+  
+  if (length(matching_index) > 0) {
+    # If there is a match, return the corresponding conservation status from the specified column
+    return(threatflora[[status_column]][matching_index[1]])
+  } else {
+    # If no match is found, return NA or any default value
+    return(NA)
+  }
+}
+
+# Apply the function to create a new column for EPBC threat status
+veg_count$EPBC_Status <- mapply(findConservationStatus, veg_count$scientificName, "EPBC_Status")
+
+# Apply the function to create a new column for NSW threat status
+veg_count$NSW_Status <- mapply(findConservationStatus, veg_count$scientificName, "NSW_Status")
+
+# Apply the function to create a new column for IUCN threat status
+veg_count$IUCN_Status <- mapply(findConservationStatus, veg_count$scientificName, "IUCN_Status")
+
+veg_count$SA_Status <- mapply(findConservationStatus, veg_count$scientificName, "SA_Status")
+
+
+ausplot_counts$EPBC_Status <- mapply(findConservationStatus, ausplot_counts$herbarium_determination, "EPBC_Status")
+
+ausplot_counts$NSW_Status <- mapply(findConservationStatus, ausplot_counts$herbarium_determination, "NSW_Status")
+
+ausplot_counts$IUCN_Status <- mapply(findConservationStatus, ausplot_counts$herbarium_determination, "IUCN_Status")
+
+ausplot_counts$SA_Status <- mapply(findConservationStatus, ausplot_counts$herbarium_determination, "SA_Status")
+
+unique(veg_count$SA_Status)
+```
+
+Get lifeform data from austraits
+
+```{r}
+library('austraits')
+austraits <- load_austraits(version = "5.0.0", path = "intro/downloads")
+
+#extract life history traits
+annual_perennial_traits <- austraits %>% extract_trait('life_history')
+
+#down with tibbles
+annual_perennial_traits <- left_join(annual_perennial_traits[["traits"]], annual_perennial_traits[["taxa"]], by = "taxon_name")
+
+#unique taxa with life history traits
+length(unique(annual_perennial_traits$taxon_name))
+#28332
+
+#different life history values
+unique(annual_perennial_traits$value)
+# [1] "perennial"                                       "biennial perennial"       # [3] "annual"                                          "annual perennial"         # [5] "biennial"                                        "annual biennial"          # [7] "annual short_lived_perennial"                    "ephemeral"                # [9] "short_lived_perennial"                           "annual ephemeral"        #[11] "annual biennial perennial"                       "biennial short_lived_perennial"                 
+#[13] "annual ephemeral perennial"                      "annual biennial short_lived_perennial"          
+#[15] "perennial short_lived_perennial"                 "biennial perennial short_lived_perennial"       
+#[17] "annual perennial short_lived_perennial"          "ephemeral short_lived_perennial"                
+#[19] "ephemeral perennial"                             "annual biennial perennial short_lived_perennial"
+
+
+annual_trait <- unique(annual_perennial_traits$value[grepl("annual", annual_perennial_traits$value)])
+
+
+#number of records with 'annual' value
+sum(annual_perennial_traits$value %in% annual_trait)
+#12441
+
+write.csv(annual_perennial_traits, 'data_out/life_form_traits.csv')
+
+#records of annuals
+annual_species_data <- subset(annual_perennial_traits, value %in% annual_trait)
+
+write.csv(annual_species_data, 'data_out/annual_species.csv')
+
+annual_perennial_traits <- read.csv('data_out/life_form_traits.csv')
+
+annual_species_data <- read.csv('data_out/annual_species.csv')
+
+#vector containing names of all annual taxa from austraits
+annual_species <- unique(annual_species_data$taxon_name)
+
+#unique taxa with at least one record of annual life history form
+length(unique(annual_species_data$taxon_name))
+#4427
+
+fowlers_veg$in_austraits_lf <- fowlers_veg$scientificName %in% annual_perennial_traits$taxon_name
+#206 species in the fowlers_veg df are not in austraits 'lifeform' - mostly due to not being a species (genus, family etc)
+
+fowlers_life_form <- annual_perennial_traits %>%
+  filter(taxon_name %in% fowlers_veg$scientificName |
+        taxon_name %in% ausplot_counts$herbarium_determination)
+
+most_frequent_lifeform <- fowlers_life_form %>%
+  group_by(taxon_name) %>%
+  summarise(most_common_lifeform = names(sort(table(value), decreasing = TRUE))[1])
+
+fowlers_veg <- fowlers_veg %>%
+  left_join(most_frequent_lifeform, by = c("scientificName" = "taxon_name"))
+
+fowlers_veg <- fowlers_veg %>%
+  mutate(simp_lf = case_when(
+    grepl('annual', most_common_lifeform, ignore.case = TRUE) ~ 'annual',
+    grepl('perennial', most_common_lifeform, ignore.case = TRUE) ~ 'perennial',
+    TRUE ~ most_common_lifeform
+  ))
+  
+vegPI <- vegPI %>%
+  left_join(most_frequent_lifeform, by = c("herbarium_determination" = "taxon_name"))
+
+
+vegPI <- vegPI %>%
+  mutate(simp_lf = case_when(
+    grepl('annual', most_common_lifeform, ignore.case = TRUE) ~ 'annual',
+    grepl('perennial', most_common_lifeform, ignore.case = TRUE) ~ 'perennial',
+    TRUE ~ most_common_lifeform
+  ))
+```
+
+```{r}
+fowlers_veg %>%
+  filter(year >= 1940) %>%
+  ggplot() +
+  geom_bar(aes(x = year, fill = simp_lf)) +
+  labs(fill = 'Life form', x = 'Year', y = 'Observations') +
+  theme_fivethirtyeight() +
+  theme(axis.title = element_text())
+
+#ggsave('maps/fowlers_ala_lf.png')
+```
+
+```{r}
+bh_rain <- read.csv('data/Broken_hill_Stephens_Creek_Rainfall.csv')
+fowlers_rain <- read.csv('data/Fowlers_AWS_Monthly_Rainfall.csv')
+
+custom_palette <- c("#FF9999", "#66CCCC", "#FFCC99", "grey")  # Adjust colors as needed
+
+
+  ggplot() +
+  geom_bar(data = subset(fowlers_veg, year >= 1950 & simp_lf != "biennial"),
+           aes(x = year, fill = simp_lf), 
+           stat = 'count') +
+  geom_line(data = bh_rain[bh_rain$Year >= 1950, ], 
+            aes(x = Year , y = as.numeric(Annual), group = 1),
+            color = 'black', size = 1, alpha = 0.6) +
+  geom_line(data = fowlers_rain,
+            aes(x = Year, y = as.numeric(Annual), group = 1),
+            color = 'red', size = 1, alpha = 0.8) +
+  labs(fill = 'life form', x = 'year', y = 'observations') +
+    scale_fill_manual(values = c('#4fafff', '#2c9c27')) +
+  theme_fivethirtyeight() +
+  theme(axis.title = element_text()) +
+  theme(plot.background = element_rect(fill = "white"),
+        panel.background = element_rect(fill = 'white'),
+        legend.background = element_rect(fill = 'white')) +
+  scale_y_continuous(name = 'observations', 
+                     sec.axis = sec_axis(trans = ~., name = 'annual rainfall (mm)'))
+
+```
+
+```{r}
+fowlers_gauge_rain <- read.csv('data/fowlers_rainfall.csv', header = T)
+
+fowlers_gauge_rain[is.na(fowlers_gauge_rain)] <- 0
+
+fowlers_gauge_rain$date <- dmy(fowlers_gauge_rain$date) 
+
+fowlers_gauge_rain_ann <- fowlers_gauge_rain %>%
+  group_by(year = year(date)) %>%
+  summarise(across(2:18, sum, na.rm = TRUE))
+
+fowlers_gauge_rain_ann_long <- fowlers_gauge_rain_ann %>%
+  gather(key = "gauge", value = "annual_rainfall", -year)
+
+ ggplot() +
+  geom_bar(data = subset(fowlers_veg, year >= 1970 & simp_lf != "biennial"),
+           aes(x = year, fill = simp_lf), 
+           stat = 'count') +
+  geom_line(data = bh_rain[bh_rain$Year >= 1970, ], 
+            aes(x = Year , y = as.numeric(Annual), group = 1),
+            color = 'black', size = 1, alpha = 0.6) +
+  geom_line(data = fowlers_rain,
+            aes(x = Year, y = as.numeric(Annual), group = 1),
+            color = 'red', size = 1, alpha = 0.8) +
+   geom_line(data = fowlers_gauge_rain_ann_long,
+             aes(x = year, y = as.numeric(annual_rainfall), color = gauge),
+             size = 0.4, alpha = 0.8, guides = F) +
+  labs(fill = 'life form', x = 'year', y = 'observations') +
+  scale_fill_manual(values = c('#4fafff', '#2c9c27')) +
+  theme_fivethirtyeight() +
+  theme(axis.title = element_text()) +
+  theme(plot.background = element_rect(fill = "white"),
+        panel.background = element_rect(fill = 'white'),
+        legend.background = element_rect(fill = 'white')) +
+  scale_y_continuous(name = 'observations', 
+                     sec.axis = sec_axis(trans = ~., name = 'annual rainfall (mm)'))
+
+```
+
+```{r}
+annual_proportions <- fowlers_veg %>%
+  filter(!is.na(simp_lf)) %>%
+  group_by(year) %>%
+  summarise(annual_proportion = sum(simp_lf == "annual") / n())
+
+
+ggplot() + 
+  geom_bar(data = subset(bh_rain, Year >=1950),
+           aes(x = as.numeric(Annual)),
+           stat = 'count') +
+  geom_line(data = subset(annual_proportions, year>=1950),
+            aes(x = year, y = annual_proportion))
+
+ggplot() +
+  geom_bar(data = subset(annual_proportions, year >= 1950),
+           aes(x = year, fill = annual_proportion), 
+           stat = 'count') +
+  geom_line(data = bh_rain[bh_rain$Year >= 1950, ], 
+            aes(x = Year , y = (as.numeric(Annual) - 500), group = 1),
+            color = 'black', size = 1, alpha = 0.6) +
+  #geom_line(data = fowlers_rain,
+  #          aes(x = Year, y = as.numeric(Annual), group = 1),
+  #          color = 'red', size = 1, alpha = 0.8) +
+  labs(fill = 'life form', x = 'year', y = 'observations') +
+    scale_fill_manual(values = c('#4fafff', '#2c9c27')) +
+  theme_fivethirtyeight() +
+  theme(axis.title = element_text()) +
+  theme(plot.background = element_rect(fill = "white"),
+        panel.background = element_rect(fill = 'white'),
+        legend.background = element_rect(fill = 'white')) +
+  scale_y_continuous(name = 'observations', 
+                     sec.axis = sec_axis(trans = ~.+500, name = 'annual rainfall (mm)'))
+
+```
+
+```{r}
+vegetation_map_FG <- st_read(here('data/veg_fg_1987', 'vegetation.shp'))
+
+plot(vegetation_map_FG)
+
+ggplot() +
+  geom_sf(data = vegetation_map_FG, aes(color = VEGETATION))
+  
+```
+
+```{r}
+site <- st_read(here('data/veg_fg_1987', 'Fowlers_Gap_Ausplots.shp'))
+
+#transform to GDA2020 MGA 56 
+site <- st_transform(site, crs = 7856)
+
+emu_pen_poly <- site[1, ]
+
+emu_pen_poly %>%
+  ggplot() +
+  geom_sf()
+```
+
+```{r}
+emu_pen_2012 <- get_ausplots('NSABHC0009-53604', veg.vouchers = T, veg.PI = T)
+emu_pen_2012_PI <- emu_pen_2012$veg.PI
+
+emu_pen_2012_PI <- emu_pen_2012_PI %>%
+  mutate(Direction = ifelse(substr(transect, 1, 1) == "S", "NS", "EW"))
+
+emu_pen_2012_PI$x <- NA
+emu_pen_2012_PI$y <- NA
+
+emu_pen_2012_PI <- emu_pen_2012_PI %>%
+  mutate(
+    x = case_when(
+      Direction == 'EW' ~ point_number/100,
+      transect %in% c("S1-N1", "S2-N2", "S3-N3", "S4-N4", "S5-N5") ~ 
+        case_when(
+          transect == "S1-N1" ~ 0.10,
+          transect == "S2-N2" ~ 0.30,
+          transect == "S3-N3" ~ 0.50,
+          transect == "S4-N4" ~ 0.70,
+          transect == "S5-N5" ~ 0.90
+        ),
+      TRUE ~ x  # Keep the existing 'x' value for other cases
+    ),
+    y = case_when(
+      Direction == 'NS' ~ point_number/100,
+      transect %in% c("E1-W1", "E2-W2", "E3-W3", "E4-W4", "E5-W5") ~ 
+        case_when(
+          transect == "E1-W1" ~ 0.10,
+          transect == "E2-W2" ~ 0.30,
+          transect == "E3-W3" ~ 0.50,
+          transect == "E4-W4" ~ 0.70,
+          transect == "E5-W5" ~ 0.90
+        ),
+      TRUE ~ y  # Keep the existing 'y' value for other cases
+    )
+  )
+
+emu_pen_2012_PI %>% 
+  drop_na(herbarium_determination) %>%
+  ggplot(aes(x = x, y = y, shape = family, color = family)) +
+  geom_point() +
+  scale_shape_manual(values = c(1:19)) +
+  theme_classic() +
+  labs(y = 'West (m)', x = 'South (m)')
+
+```
+
+```{r}
+na.omit(emu_pen_2012_PI$herbarium_determination) %in% fowlers_life_form$taxon_name
+#most have lifeform data from austraits
+
+emu_pen_2012_PI <- emu_pen_2012_PI %>%
+  left_join(most_frequent_lifeform, by = c("herbarium_determination" = "taxon_name"))
+
+color_palette <- c('annual' = 'red', 'perennial' = '#da42f5', 'annual perennial' = "#42b0f5", 'annual short_lived_perennial' = "#4ef542", 'NA' = 'grey')
+
+emu_pen_2012_PI %>% 
+  drop_na(herbarium_determination) %>%
+  ggplot(aes(x = x, y = y, shape = family, color = most_common_lifeform)) +
+  geom_point() +
+  scale_shape_manual(values = c(1:19)) +
+  scale_color_manual(values = color_palette) +
+  theme_fivethirtyeight() +
+  labs(y = 'West (m)', x = 'South (m)')
+
+
+ggsave('maps_graphs/emu_ausplot_2012_lf.png', width = 10, height = 10, dpi = 320)
+```
+
+```{r}
+emu_pen_2016 <- get_ausplots('NSABHC0009-58026', veg.vouchers = T, veg.PI = T)
+emu_pen_2016_PI <- emu_pen_2016$veg.PI
+
+emu_pen_2016_PI <- emu_pen_2016_PI %>%
+  mutate(Direction = ifelse(substr(transect, 1, 1) %in% c('S', 'N'), "NS", "EW"))
+
+
+emu_pen_2016_PI$x <- NA
+emu_pen_2016_PI$y <- NA
+
+emu_pen_2016_PI <- emu_pen_2016_PI %>%
+  mutate(
+    x = case_when(
+      Direction == 'EW' ~ point_number/100,
+      transect %in% c("S1-N1", "N2-S2", "S3-N3", "N4-S4", "S5-N5") ~ 
+        case_when(
+          transect == "S1-N1" ~ 0.10,
+          transect == "N2-S2" ~ 0.30,
+          transect == "S3-N3" ~ 0.50,
+          transect == "N4-S4" ~ 0.70,
+          transect == "S5-N5" ~ 0.90
+        ),
+      TRUE ~ x  # Keep the existing 'x' value for other cases
+    ),
+    y = case_when(
+      Direction == 'NS' ~ point_number/100,
+      transect %in% c("W1-E1", "E2-W2", "W3-E3", "E4-W4", "E5-W5") ~ 
+        case_when(
+          transect == "W1-E1" ~ 0.10,
+          transect == "E2-W2" ~ 0.30,
+          transect == "W3-E3" ~ 0.50,
+          transect == "E4-W4" ~ 0.70,
+          transect == "E5-W5" ~ 0.90
+        ),
+      TRUE ~ y  # Keep the existing 'y' value for other cases
+    )
+  )
+
+emu_pen_2016_PI <- emu_pen_2016_PI %>%
+  left_join(most_frequent_lifeform, by = c("herbarium_determination" = "taxon_name"))
+
+emu_pen_2016_PI %>% 
+  drop_na(herbarium_determination) %>%
+  ggplot(aes(x = x, y = y, shape = family, color = most_common_lifeform)) +
+  geom_point() +
+  scale_shape_manual(values = c(1:19)) +
+  scale_color_manual(values = color_palette) +
+  theme_fivethirtyeight() +
+  labs(y = 'West (m)', x = 'South (m)')
+
+
+ggsave('maps_graphs/emu_ausplot_2016_lf.png', width = 10, height = 10, dpi = 320)
+
+
+
+```

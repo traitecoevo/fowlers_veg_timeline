@@ -1,0 +1,11 @@
+"0","library(ausplotsR)
+"
+"2","Loading required package: ggplot2
+"
+"2","Warning: package ‘ggplot2’ was built under R version 4.3.1"
+"2","Loading required package: mapdata
+"
+"2","Warning: package ‘mapdata’ was built under R version 4.3.1"
+"2","Loading required package: maps
+"
+"2","Warning: package ‘maps’ was built under R version 4.3.2"

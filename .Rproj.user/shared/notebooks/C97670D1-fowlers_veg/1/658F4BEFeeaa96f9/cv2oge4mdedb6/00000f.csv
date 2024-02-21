@@ -1,0 +1,7 @@
+"0","fowlers_veg %>%"
+"0","  filter(year >= 1940) %>%"
+"0","  ggplot() +"
+"0","  geom_bar(aes(x = year, fill = simp_lf)) +"
+"0","  labs(fill = 'Life form', x = 'Year', y = 'Observations') +"
+"0","  theme_fivethirtyeight() +"
+"0","  theme(axis.title = element_text())"

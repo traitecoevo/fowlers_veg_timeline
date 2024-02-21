@@ -1,0 +1,417 @@
+---
+title: "fowlers_veg_data"
+format: html
+editor: visual
+---
+
+## Fowlers Gap Vegetation
+
+```{r}
+library(devtools)
+install_github("ternaustralia/ausplotsR", build_vignettes = TRUE, dependencies = TRUE)
+library(ausplotsR)
+```
+
+```{r}
+#chose the below 10 plots for proximity to fowlers gap based on THIS map of plots https://www.tern.org.au/news-gap-filling/
+
+plots_oi <- c('NSABHC0009', 'NSABHC0010', 'NSABHC0011', 'NSABHC0012', 'NSABHC0028', 'NSABHC0029')
+
+veg <- get_ausplots(plots_oi, veg.vouchers = T, veg.PI = T)
+
+vegveg <- veg$veg.vouch
+
+vegPI <- veg$veg.PI
+
+
+#view site and visit date
+veg$site.info[ , c(2, 15)] #only NSABHC0009 and NSABHC0012 have been visited twice (2012, 2016), others just once 
+
+
+#write.csv(plants, 'data/veg_species_in_plots_oi.csv')
+```
+
+```{r}
+emu_pen_PI <- subset(vegPI, site_location_name == 'NSABHC0009')
+
+emu_pen$site.info$latitude
+
+veg_info <- veg$site.info
+
+emu_pen_info <- subset(veg_info, site_location_name == 'NSABHC0009' )
+
+
+```
+
+## ALA data - plants within 20km of Fowlers Gap Research Station
+
+```{r}
+#all plants within 20km radius of Fowlers Gap RS
+ALA_plants <- read.csv("data/FG_20km_all_plants.csv")
+
+```
+
+## BOM Rainfall - Fowlers Gap AWS 2005 - 2023, Broken Hill Sturts Meadow 1895 - 2014
+
+```{r}
+#Fowlers Gap AWS  rainfall from http://www.bom.gov.au/jsp/ncc/cdio/weatherData/av?p_nccObsCode=139&p_display_type=dataFile&p_stn_num=046128
+fowlers_rain <- read.csv("data/Fowlers_AWS_Monthly_Rainfall.csv")
+
+#Broken Hill Sturts Meadow (closest BOM station after FG) from http://www.bom.gov.au/jsp/ncc/cdio/weatherData/av?p_nccObsCode=139&p_display_type=dataFile&p_stn_num=046033
+broken_sturts_rain <- read.csv("data/Broken_Hill_Sturts_Meadow_Monthly_Rainfall.csv")
+```
+
+## Fractional cover
+
+```{python}
+
+```
+
+```{r}
+# Load required libraries
+install.packages('geosphere')
+library(ggplot2)
+library(geosphere)
+
+# SW corner coordinates (WGS84)
+sw_lat <- -31.08023
+sw_lon <- 141.6974
+
+# Length of the edges (100m)
+edge_length_m <- 100
+
+nw <- destPoint(p = c(sw_lon, sw_lat), b = 0, d = edge_length_m)
+se <- destPoint(p = c(sw_lon, sw_lat), b = 90, d = edge_length_m)
+ne <- destPoint(p = c(se[1], se[2]), b = 0, d = edge_length_m)
+sw <- c(sw_lon, sw_lat)
+
+# Create a data frame with corner coordinates
+square_df <- data.frame(
+  lon = c(sw[1], nw[1], ne[1], se[1], sw[1]),
+  lat = c(sw[2], nw[2], ne[2], se[2], sw[2])
+)
+
+# Plot the square
+ggplot(data = square_df, aes(x = lon, y = lat)) +
+  geom_polygon(fill = "transparent", color = "black") +
+  coord_fixed() +
+  labs(x = "Longitude", y = "Latitude") +
+  theme_minimal()
+```
+
+```{r}
+emu <- get_ausplots('NSABHC0009', veg.PI = T)
+
+ausplots_visual(emu)
+
+map_ausplots(emu)
+
+species_table(emu_pen_PI, m_kind = 'PA', species_name = 'HD')
+```
+
+```{r}
+```
+
+```{r}
+library(sf)
+
+#this wkt has found on https://ecoplots.tern.org.au/search?search_string=NSABHC0009
+wkt <- "POLYGON((141.69736861 -31.08023472,141.69750889 -31.07934056,141.69855806 -31.07946139,141.69843861 -31.08032806,141.69736861 -31.08023472))"
+
+#create spatial object
+polygon <- st_as_sfc(wkt)
+
+# Plot the polygon and grid
+ggplot() +
+  geom_sf(data = polygon) +
+  theme_minimal()
+
+st_area(polygon)
+#9.467811e-07
+
+```
+
+```{r}
+# Load the necessary libraries
+library(sf)
+
+# Define the WKT polygon
+wkt <- "POLYGON((141.69736861 -31.08023472,141.69750889 -31.07934056,141.69855806 -31.07946139,141.69843861 -31.08032806,141.69736861 -31.08023472))"
+
+# Create a spatial object from the WKT polygon
+polygon <- st_as_sfc(wkt, crs = st_crs("+proj=longlat +datum=WGS84"))
+
+# Define a CRS in meters (UTM Zone 54)
+utm_crs <- st_crs("+proj=utm +zone=54 +datum=WGS84")
+
+# Transform the polygon to the UTM CRS
+polygon_utm <- st_transform(polygon, crs = utm_crs)
+
+# Create a 10x10 meter grid
+grid <- st_make_grid(polygon_utm, cellsize = c(10, 10))
+
+# Transform the grid back to WGS84 if needed
+grid_wgs84 <- st_transform(grid, crs = st_crs("+proj=longlat +datum=WGS84"))
+
+ggplot() +
+  geom_sf(data = polygon, fill = "lightblue") +
+  #geom_sf(data = grid_wgs84, color = "red", alpha = 0.5) +
+  theme_minimal()
+
+st_area(polygon)
+
+
+```
+
+```{r}
+wkt_rw <- "POLYGON((141.70030972 -31.07671806,141.70047083 -31.07581472,141.70147778 -31.07592667,141.70133306 -31.07682472,141.70030972 -31.07671806))"
+
+# Create a spatial object from the WKT polygon
+polygon_rw <- st_as_sfc(wkt_rw, crs = st_crs("+proj=longlat +datum=WGS84"))
+
+# Define a CRS in meters (UTM Zone 54)
+utm_crs <- st_crs("+proj=utm +zone=54 +datum=WGS84")
+
+# Transform the polygon to the UTM CRS
+polygon_rw_utm <- st_transform(polygon_rw, crs = utm_crs)
+
+# Create a 10x10 meter grid
+grid <- st_make_grid(polygon_rw_utm, cellsize = c(10, 10))
+
+# Transform the grid back to WGS84 if needed
+grid_wgs84 <- st_transform(grid, crs = st_crs("+proj=longlat +datum=WGS84"))
+
+ggplot() +
+  geom_sf(data = polygon_rw, fill = "lightblue") +
+  geom_sf(data = grid_wgs84, color = "red", alpha = 0.5) +
+  theme_minimal()
+```
+
+```{r}
+library(tidyverse)
+
+```
+
+```{r}
+
+emu_pen_PI1 <- subset(emu_pen_PI, site_location_visit_id == '53604')
+
+emu_pen_PI1 <- emu_pen_PI1 %>%
+  mutate(Direction = ifelse(substr(transect, 1, 1) == "S", "NS", "EW"))
+
+
+EW_tran <- emu_pen_PI1 %>% filter(Direction == "EW")
+
+NS_tran <- emu_pen_PI1 %>% filter(Direction == "NS")
+
+
+ggplot(data = EW_tran, aes(x = point_number, y = transect, color = herbarium_determination)) +
+  geom_point() +
+  theme(legend.position = 'none') 
+
+
+NS <- ggplot(data = NS_tran, aes(x = transect, y = point_number)) +
+  geom_point()
+
+
+emu_pen_PI1$x <- NA
+emu_pen_PI1$y <- NA
+
+emu_pen_PI1 <- emu_pen_PI1 %>%
+  mutate(x = ifelse(Direction == 'EW', point_number, x))
+  
+
+emu_pen_PI1 <- emu_pen_PI1 %>%
+  mutate(y = case_when(
+    transect %in% c("E1-W1", "E2-W2", "E3-W3", "E4-W4", "E5-W5") ~ 
+      case_when(
+        transect == "E1-W1" ~ 0.10,
+        transect == "E2-W2" ~ 0.30,
+        transect == "E3-W3" ~ 0.50,
+        transect == "E4-W4" ~ 0.70,
+        transect == "E5-W5" ~ 0.90
+      ),
+    TRUE ~ y  # Keep the existing 'y' value for other cases
+  ))
+
+
+emu_pen_PI1 <- emu_pen_PI1 %>%
+  mutate(y = ifelse(Direction == 'NS', point_number/100, y))
+
+
+emu_pen_PI1 <- emu_pen_PI1 %>%
+  mutate(x = case_when(
+    transect %in% c("S1-N1", "S2-N2", "S3-N3", "S4-N4", "S5-N5") ~ 
+      case_when(
+        transect == "S1-N1" ~ 0.10,
+        transect == "S2-N2" ~ 0.30,
+        transect == "S3-N3" ~ 0.50,
+        transect == "S4-N4" ~ 0.70,
+        transect == "S5-N5" ~ 0.90
+      ),
+    TRUE ~ x  # Keep the existing 'x' value for other cases
+  ))
+
+
+
+  
+
+emu_1_family <- emu_pen_PI1 %>% 
+  drop_na(herbarium_determination) %>%
+  ggplot(aes(x = x, y = y, shape = family, color = family)) +
+  geom_point() +
+  scale_shape_manual(values = c(1:19)) +
+  theme_classic() +
+  labs(y = 'West (m)', x = 'South (m)')
+emu_1_family
+
+
+ggsave('maps/emu_visit_1_family.png', emu_1_family, width = 10, height = 10)
+
+
+annual_perennial_data %>% 
+  filter(taxon_name == 'Lotus cruentus')
+```
+
+```{r}
+emu_pen_PI1$x <- emu_pen_PI1$x/100
+emu_pen_PI1$y <- emu_pen_PI1$y/100
+
+
+```
+
+```{r}
+# Define the WKT polygon
+wkt <- "POLYGON((141.69736861 -31.08023472,141.69750889 -31.07934056,141.69855806 -31.07946139,141.69843861 -31.08032806,141.69736861 -31.08023472))"
+
+# Create a spatial object for the polygon
+polygon <- st_as_sfc(wkt)
+st_crs(polygon) <- st_crs("+proj=longlat +datum=WGS84 +no_defs")
+
+# Define a suitable projected CRS for your area (e.g., EPSG 3577 for Australia)
+projected_crs <- st_crs("+proj=utm +zone=54 +south +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs")
+
+
+# Transform the polygon to the projected CRS
+polygon_projected <- st_transform(polygon, projected_crs)
+
+ggplot() +
+  geom_sf(data = polygon_projected)
+
+polygon_projected[[1]]
+library(sf)
+
+# Define the polygon coordinates in eastings and northings
+polygon_coords <- matrix(c(566520, 566534, 566634, 566622, 566520,
+                            6561297, 6561396, 6561382, 6561286, 6561297), ncol = 2, byrow = TRUE)
+
+# Create an sf LINESTRING object from the coordinates
+linestring <- st_linestring(polygon_coords)
+
+# Create an sf object with the LINESTRING
+sf_polygon <- st_sf(geometry = st_sfc(linestring))
+
+lengths <- st_length(st_cast(polygon_projected, "LINESTRING"))
+
+# Calculate the gradient between each pair of points
+coordinates <- st_coordinates(polygon_projected)
+dx <- diff(coordinates[, "X"])
+dy <- diff(coordinates[, "Y"])
+gradients <- dy / dx
+
+
+print(lengths)
+
+print(gradients)
+
+
+```
+
+```{r}
+# Install and load the geosphere package
+install.packages("geosphere")
+library(geosphere)
+
+distm(c(141.69736861 -31.08023472), c(141.69750889 -31.07934056), fun = distRhumb)
+
+# Define the coordinates of point A and point B
+# For example, latitude and longitude of point A and point B
+pointA <- c(141.69736861 -31.08023472)  # Latitude and Longitude of point A
+pointB <- c(141.69750889 -31.07934056)  # Latitude and Longitude of point B
+
+# Calculate the distance between point A and point B in meters
+distance <- distRhumb(pointA, pointB)
+
+# Print the distance in meters
+print(distance)
+
+```
+
+```{r}
+annual_perennial_data <- read.csv('data/life_form_traits.csv')
+  
+ann_penn_taxa <- unique(annual_perennial_data$taxon_name)
+
+pen1_taxa <- unique(emu_pen_PI1$standardised_name)
+
+
+annual_trait <- unique(annual_perennial_data$value[grepl("annual", annual_perennial_data$value)])
+
+annual_species_data <- subset(annual_perennial_data, value %in% annual_trait)
+
+annual_taxa <- unique(annual_species_data$taxon_name)
+
+emu_pen_PI1$lifeform <- NA
+
+
+
+pen1_taxa %in% annual_taxa
+
+for (i in 1:nrow(emu_pen_PI1)) {
+  match_index <- which(annual_perennial_data$taxon_name == emu_pen_PI1$standardised_name[i])
+  if (length(match_index) > 0) {
+    emu_pen_PI1$lifeform[i] <- annual_perennial_data$value[match_index]
+  }
+}
+
+emu_pen_PI1 <- emu_pen_PI1 %>%
+  mutate(lifeform_simp = case_when(
+    grepl("annual", lifeform, ignore.case = TRUE) ~ "annual",
+    grepl("perennial", lifeform, ignore.case = TRUE) ~ "perennial",
+    TRUE ~ lifeform  # If neither "annual" nor "perennial" found, keep the original value
+  ))
+
+```
+
+```{r}
+#plotting as sf objects in the hope it can be converted to correct coordinates
+sf_points <- st_as_sf(emu_pen_PI1, coords = c("x", "y"))
+
+
+ep_df <- data.frame(x = c(0, 0, 100, 100, 0), y = c(0, 100, 100, 0, 0))
+
+p = Polygon(ep_df)
+ps = Polygons(list(p),1)
+ep_poly = SpatialPolygons(list(ps))
+plot(ep_poly)
+ep_poly <- st_as_sf(ep_poly)
+
+sf_points_filtered <- sf_points %>%
+  filter(!is.na(herbarium_determination))
+
+emu_fam_visit1 <- ggplot() +
+   geom_sf(data = ep_poly, fill = 'transparent') +
+   geom_sf(data = sf_points_filtered, aes(color = family, shape = family)) +
+  labs(x = 'South (m)', y = 'West (m)') +
+  scale_shape_manual(values = c(1:19)) +
+  theme_classic()
+```
+
+```{r}
+
+```
+
+```{r}
+
+
+```

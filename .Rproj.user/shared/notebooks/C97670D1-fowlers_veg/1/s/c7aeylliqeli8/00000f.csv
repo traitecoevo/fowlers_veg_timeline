@@ -1,0 +1,6 @@
+"0","austraits <- load_austraits(version = ""4.2.0"", path = ""intro/downloads"")
+"
+"2","Loading data from 'intro/downloads/dictionary.html'
+"
+"2","Error in readRDS(file_path) : unknown input format
+"
