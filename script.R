@@ -12,10 +12,8 @@ library(devtools)
 install_github("ternaustralia/ausplotsR", build_vignettes = TRUE, dependencies = TRUE)
 library(ausplotsR)
 library(raster)
-install.packages('RStoolbox')
 library(RStoolbox)
 
-citation('RStoolbox')
 
 # ausplot data ------------------------------------------------------------
 
@@ -25,39 +23,31 @@ plots_oi <- c('NSABHC0009', 'NSABHC0010', 'NSABHC0011', 'NSABHC0012', 'NSABHC002
 
 veg <- get_ausplots(plots_oi, veg.vouchers = T, veg.PI = T)
 
-veg$site.info$visit_date
-
 vegPI <- veg$veg.PI
 
-unique(veg$site.info$site_location_name) 
+allveg <- veg$veg.vouch
 
-vegveg <- veg$veg.vouch
-
-veg_count_by_plot <- vegveg %>%
+#species richness for plots @ each survey 
+veg_count_by_survey <- allveg %>%
   group_by(site_unique) %>%
   summarise(count = n()) 
 
-
-veg_in_plots <- vegveg %>% 
+#all species found across ausplot surveys, and surveys in which they were found
+veg_in_plots <- allveg %>% 
   group_by(herbarium_determination) %>% 
   summarize(site_unique = paste(unique(site_unique), collapse = ", ")) %>%
   arrange(herbarium_determination)
 
-#write.csv(veg_in_plots, 'data_out/veg_in_plots.csv')
+#load in 2022 data
+vegPI22 <- read.csv("data/FG_2022_visit/Fowlers Gap_PI_GrowthForm_data-ALL.csv") %>%
+  subset(substring(visit_start_date, 8, 9) == '22')
 
-veg$site.info |>
-  View()
+#load in 2024 data
+vegPI24 <- read.csv("data/ausplot_survey_march24.csv")
 
-vegveg
 
-unique(vegPI$growth_form)
-#[1] "Tree/Palm"     "Chenopod"      "Tussock grass" "Shrub"         "Forb"          "Vine"          "Tree Mallee"  
 
-unique(vegPI$substrate)
-#[1] "Bare"    "Litter"  "Crypto"  "Gravel"  "Rock"    "CWD"     "Unkwn"   "Outcrop"
-
-#write.csv(unique(vegPI$herbarium_determination), 'data_out/veglist.csv')
-
+#this is for mapping the ausplot surveys on a cartesian plane - it corrects for transects being surveyed in diff directions
 # Extract only direction of the transect (no numbers)
 vegPI$transect_direction <- gsub('[[:digit:]]+', '', vegPI$transect)
 
@@ -142,8 +132,7 @@ for (i in 1:nrow(vegPI)){
   }
 }
 
-veg[]
-
+#mapping 2012 emu pen survey from ausplots by family
 vegPI %>% 
   filter(site_location_visit_id == 53604) %>% #emu pen visit
   drop_na(herbarium_determination) %>%
@@ -163,31 +152,18 @@ FG_area <- st_read('data/unsw-fowlers.kml')
 fowlers_veg <- galah_call() |>
   galah_identify("plantae") |>
   galah_geolocate(FG_area) |>
-  atlas_occurrences()
-
-select <- c(colnames(fowlers_veg)[1:8], "genus", "family")
-
-fowlers_veg <- galah_call() |>
-  galah_identify("plantae") |>
-  galah_select(select) |>
-  galah_geolocate(FG_area) |>
+  galah_select(genus, family, group = 'basic') |>
   atlas_occurrences()
 
 fowlers_veg$year <- as.numeric(substr(fowlers_veg$eventDate, 1, 4))
 
+#view occurrence of ALA obs by year, filled by family
 fowlers_veg %>%
   filter(year >= 1940) %>%
   ggplot() +
   geom_bar(aes(x = year, fill = family)) +
   theme_classic() +
   theme(legend.position = 'none')
-
-#ggsave('maps/family_occurence.png', width = 15, height = 7)
-
-#this was to download the ConR package - not using RN
-install.packages("devtools")
-devtools::install_github("gdauby/ConR")
-library(ConR)
 
 # downloaded threatened status of NSW/SA plants from https://www.environment.gov.au/sprat-public/action/report 
 threatflora <- read.csv('data/EPBC Threatened Flora plus SA.csv')
@@ -203,6 +179,7 @@ ausplot_counts <- vegPI %>%
   summarise(count = n())
 
 # find the matching conservation status for a given species name and status column (doesn't account for synonyms etc)
+#i want to run threatflora, and veg_count through APCalign so that synonyms etc are accounted for
 findConservationStatus <- function(species_name, status_column) {
   matching_index <- which(species_name %in% threatflora$scientificName |
                             species_name %in% threatflora$EPBC_Name |
@@ -219,40 +196,14 @@ findConservationStatus <- function(species_name, status_column) {
   }
 }
 
-# create  new column for EPBC threat status
-veg_count$EPBC_Status <- mapply(findConservationStatus, veg_count$scientificName, "EPBC_Status")
-
-# create new column for NSW threat status
-veg_count$NSW_Status <- mapply(findConservationStatus, veg_count$scientificName, "NSW_Status")
-
-# create new column for IUCN threat status
-veg_count$IUCN_Status <- mapply(findConservationStatus, veg_count$scientificName, "IUCN_Status")
-
-# create new column for SA threat status
-veg_count$SA_Status <- mapply(findConservationStatus, veg_count$scientificName, "SA_Status")
-
-veg_count$SA <- mapply(findConservationStatus, veg_count$scientificName, "SA")
-
-veg_count$NSW <- mapply(findConservationStatus, veg_count$scientificName, "NSW")
-
-
-# create new column for EPBC threat status
-ausplot_counts$EPBC_Status <- mapply(findConservationStatus, ausplot_counts$herbarium_determination, "EPBC_Status")
-
-# create new column for NSW threat status
-ausplot_counts$NSW_Status <- mapply(findConservationStatus, ausplot_counts$herbarium_determination, "NSW_Status")
-
-# create new column for IUCN threat status
-ausplot_counts$IUCN_Status <- mapply(findConservationStatus, ausplot_counts$herbarium_determination, "IUCN_Status")
-
-# create new column for SA threat status
-ausplot_counts$SA_Status <- mapply(findConservationStatus, ausplot_counts$herbarium_determination, "SA_Status")
-
-# create new column for SA presence
-ausplot_counts$SA <- mapply(findConservationStatus, ausplot_counts$herbarium_determination, "SA")
-
-# create new column for SA presence
-ausplot_counts$NSW <- mapply(findConservationStatus, ausplot_counts$herbarium_determination, "NSW")
+# create  new column for EPBC, NSW, IUCN, SA threat status
+veg_count <- veg_count %>%
+  mutate(EPBC_Status = mapply(findConservationStatus, scientificName, "EPBC_Status"),
+         NSW_Status = mapply(findConservationStatus, scientificName, "NSW_Status"),
+         IUCN_Status = mapply(findConservationStatus, scientificName, "IUCN_Status"),
+         SA_Status = mapply(findConservationStatus, scientificName, "SA_Status"),
+         SA = mapply(findConservationStatus, scientificName, "SA"),
+         NSW = mapply(findConservationStatus, scientificName, "NSW"))
 
 
 # austraits - extract annual traits ---------------------------------------
@@ -268,7 +219,7 @@ annual_perennial_traits <- left_join(annual_perennial_traits[["traits"]], annual
 
 #unique taxa with life history traits
 length(unique(annual_perennial_traits$taxon_name))
-#28332
+#30474
 
 #different life history values
 unique(annual_perennial_traits$value)
@@ -278,39 +229,14 @@ unique(annual_perennial_traits$value)
 #[17] "annual perennial short_lived_perennial"          "ephemeral short_lived_perennial"                
 #[19] "ephemeral perennial"                             "annual biennial perennial short_lived_perennial"
 
-
 annual_trait <- unique(annual_perennial_traits$value[grepl("annual", annual_perennial_traits$value)])
-
-
-#number of records with 'annual' value
-sum(annual_perennial_traits$value %in% annual_trait)
-#12441
-
-#write.csv(annual_perennial_traits, 'data_out/life_form_traits.csv')
-
-#records of annuals
-annual_species_data <- subset(annual_perennial_traits, value %in% annual_trait)
-
-#write.csv(annual_species_data, 'data_out/annual_species.csv')
-
-annual_perennial_traits <- read.csv('data_out/life_form_traits.csv')
-
-annual_species_data <- read.csv('data_out/annual_species.csv')
-
-#vector containing names of all annual taxa from austraits
-annual_species <- unique(annual_species_data$taxon_name)
-
-#unique taxa with at least one record of annual life history form
-length(unique(annual_species_data$taxon_name))
-#4427
-
-fowlers_veg$in_austraits_lf <- fowlers_veg$scientificName %in% annual_perennial_traits$taxon_name
-#206 species in the fowlers_veg df are not in austraits 'lifeform' - mostly due to not being a species (genus, family etc)
 
 fowlers_life_form <- annual_perennial_traits %>%
   filter(taxon_name %in% fowlers_veg$scientificName |
            taxon_name %in% ausplot_counts$herbarium_determination)
 
+#this finds the life form traits listed for each species at fowlers (if available) and selects the life form that is 
+#specified most often as the 'life form'. Do we want to do this like this, or take any record of 'annual'?
 most_frequent_lifeform <- fowlers_life_form %>%
   group_by(taxon_name) %>%
   summarise(most_common_lifeform = names(sort(table(value), decreasing = TRUE))[1])
@@ -616,15 +542,27 @@ ausplot_site_dates_long_long %>%
   theme_minimal() +
   theme(
     axis.text.x = element_text(angle = 90, hjust = 1),
-    panel.background = element_rect(fill = "white"),  # Set the panel background color to white
-    plot.background = element_rect(fill = "white"),   # Set the overall plot background color to white
+    panel.background = element_rect(fill = "white"), 
+    plot.background = element_rect(fill = "white"),   
     legend.background = element_rect(fill = "white")
   ) +
   labs(fill = 'Visit Year', x = 'Site Name')
 
 
+# plant census ------------------------------------------------------------
 
-ggsave('maps_graphs/rainfall_sample_dates.png', height = 5, width = 10)
+install.packages("remotes")
+remotes::install_github("traitecoevo/APCalign")
 
+#arrow error - cannot download APCalign
+library(APCalign)
 
+resources <- load_taxonomic_resources()
 
+create_taxonomic_update_lookup( 
+  taxa = c(vegPI$herbarium_determination,
+           vegPI22$field_name,
+           vegPI24$field_name
+  ),
+  resources = resources
+)
