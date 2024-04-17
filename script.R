@@ -1,9 +1,25 @@
 
+# load packages -----------------------------------------------------------
+
+library(sf)
+library(ggplot2)
+library(galah)
+library(tidyverse)
+library(austraits)
+library(ggthemes)
+library(here)
+library(devtools)
+install_github("ternaustralia/ausplotsR", build_vignettes = TRUE, dependencies = TRUE)
+library(ausplotsR)
+library(raster)
+install.packages('RStoolbox')
+library(RStoolbox)
+
+citation('RStoolbox')
+
 # ausplot data ------------------------------------------------------------
 
-#chose the below plots for proximity to fowlers gap based on THIS map of plots https://www.tern.org.au/news-gap-filling/
-#NSABHC0009 = emu pen
-ausplots_visual()
+#chose fowlers plots based on THIS map of plots https://www.tern.org.au/news-gap-filling/
 
 plots_oi <- c('NSABHC0009', 'NSABHC0010', 'NSABHC0011', 'NSABHC0012', 'NSABHC0028', 'NSABHC0029')
 
@@ -12,6 +28,35 @@ veg <- get_ausplots(plots_oi, veg.vouchers = T, veg.PI = T)
 veg$site.info$visit_date
 
 vegPI <- veg$veg.PI
+
+unique(veg$site.info$site_location_name) 
+
+vegveg <- veg$veg.vouch
+
+veg_count_by_plot <- vegveg %>%
+  group_by(site_unique) %>%
+  summarise(count = n()) 
+
+
+veg_in_plots <- vegveg %>% 
+  group_by(herbarium_determination) %>% 
+  summarize(site_unique = paste(unique(site_unique), collapse = ", ")) %>%
+  arrange(herbarium_determination)
+
+#write.csv(veg_in_plots, 'data_out/veg_in_plots.csv')
+
+veg$site.info |>
+  View()
+
+vegveg
+
+unique(vegPI$growth_form)
+#[1] "Tree/Palm"     "Chenopod"      "Tussock grass" "Shrub"         "Forb"          "Vine"          "Tree Mallee"  
+
+unique(vegPI$substrate)
+#[1] "Bare"    "Litter"  "Crypto"  "Gravel"  "Rock"    "CWD"     "Unkwn"   "Outcrop"
+
+#write.csv(unique(vegPI$herbarium_determination), 'data_out/veglist.csv')
 
 # Extract only direction of the transect (no numbers)
 vegPI$transect_direction <- gsub('[[:digit:]]+', '', vegPI$transect)
@@ -110,17 +155,6 @@ vegPI %>%
 
 
 # get ALA data and apply threat status ------------------------------------
-
-library(sf)
-library(ggplot2)
-library(galah)
-library(tidyverse)
-library(austraits)
-library(ggthemes)
-library(here)
-library(devtools)
-install_github("ternaustralia/ausplotsR", build_vignettes = TRUE, dependencies = TRUE)
-library(ausplotsR)
 
 galah_config(email = 'adelegemmell@hotmail.com')
 
@@ -303,9 +337,9 @@ vegPI <- vegPI %>%
   ))
 
 #save csvs for ausplots/ALA + lifeform
-write.csv(vegPI, 'data_out/ausplots_species_with_lifeform')
+#write.csv(vegPI, 'data_out/ausplots_species_with_lifeform')
 
-write.csv(fowlers_veg, 'data_out/ALA_FG_species_with_lifeform')
+#write.csv(fowlers_veg, 'data_out/ALA_FG_species_with_lifeform')
 
 
 # plotting the ausplot species spatially ----------------------------------
@@ -392,7 +426,7 @@ ggplot() +
   theme(panel.background = element_rect(fill = "white", color = 'white'),  # Set the panel background color to white
 plot.background = element_rect(fill = "white", color = 'white'),   # Set the overall plot background color to white
 legend.background = element_rect(fill = "white", color = 'white')) +
-  scale_color_hue(labels = c('emu pen', 'NSABHC0010', 'sandstone', 'NSABHC0012', 'conservation', 'freislich')) +
+  scale_color_hue(labels = c('emu pen', 'emu grazed', 'sandstone', 'conservation', 'connors (mallee)', 'freislich (red gum)')) +
   scale_fill_manual(labels = c("ALA observations"), values = c("grey50")) +
   guides(fill = guide_legend(title = NULL),
          shape = guide_legend(title = NULL)) +
@@ -435,7 +469,7 @@ FG_daily_rainfall$Short.Date <- as.Date(paste(FG_daily_rainfall$Year,
 
 #pivot longer
 ausplot_site_dates_long <- ausplot_site_dates %>% 
-  pivot_longer(cols = c(Established.Date, Revisit.Date.1, Revisit.Date.2),
+  pivot_longer(cols = c(Established.Date, Revisit.Date.1, Revisit.Date.2, Revisit.Date.3),
                names_to = "Visit_Number",
                values_to = "Visit_Date") %>%
   filter(Visit_Date != "") %>%  # Remove rows with empty values in Visit_Date
@@ -443,7 +477,8 @@ ausplot_site_dates_long <- ausplot_site_dates %>%
   mutate(Visit_Number = case_when(
     str_detect(Visit_Number, "Established") ~ 1,
     str_detect(Visit_Number, "Revisit.Date.1") ~ 2,
-    str_detect(Visit_Number, "Revisit.Date.2") ~ 3
+    str_detect(Visit_Number, "Revisit.Date.2") ~ 3,
+    str_detect(Visit_Number, "Revisit.Date.3") ~ 4
   ))
 
 #as.Date the date
@@ -502,6 +537,7 @@ rainfall_for_given_date <- data.frame(
   Rainfall_12_months = calculate_previous_rainfall(given_date, FG_daily_rainfall, 12)
 )
 
+
 # Function to calculate the number of days with rainfall greater than 0 for previous n months
 calculate_previous_rainfall_days <- function(end_date, rainfall_data, n_months) {
   start_date <- end_date %m-% months(n_months)
@@ -553,20 +589,42 @@ ausplot_site_dates_long_long <- pivot_longer(
 )
 
 
+library(stringr)  
+# Define custom labels based on Rainfall_Type
+custom_labels <- function(x) {
+  ifelse(
+    grepl("^Rainfall_", x),
+    gsub("^(Rainfall_[0-9]+_months)$", "Rainfall (mm) \\1", x),
+    gsub("_", " ", x)
+  )
+}
+
 ausplot_site_dates_long_long$Rainfall_Type <- factor(
   ausplot_site_dates_long_long$Rainfall_Type,
   levels = c("Rainfall_1_month", "Rainfall_3_months", "Rainfall_6_months", "Rainfall_12_months",
-             "RainfallDays_1_month", "RainfallDays_3_months", "RainfallDays_6_months", "RainfallDays_12_months")
+             "RainfallDays_1_month", "RainfallDays_3_months", "RainfallDays_6_months", "RainfallDays_12_months"),
+  labels = custom_labels,
+  ordered = TRUE
 )
 
-ggplot(ausplot_site_dates_long_long, aes(x = Plot.Name, y = Rainfall, fill = as.factor(Visit_Date))) +
+ausplot_site_dates_long_long %>%
+  filter(!(Plot.Name %in% c('NSABHC0028', 'NSABHC0029'))) %>% 
+  ggplot(aes(x = Plot.Name, y = Rainfall, fill = as.factor(substr(Visit_Date, 1, 4)))) +
   geom_col(position = "dodge") +
   facet_wrap(~ Rainfall_Type, scales = "free_y", nrow = 2, ncol = 4) +
+  scale_fill_manual(values = c("#169c9c", "#b39eb5", "#9ec35d", "#f08080")) +  
   theme_minimal() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1),
-        panel.background = element_rect(fill = "white"),  # Set the panel background color to white
-        plot.background = element_rect(fill = "white"),   # Set the overall plot background color to white
-        legend.background = element_rect(fill = "white")) +
-  labs(fill = 'Visit Date')
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1),
+    panel.background = element_rect(fill = "white"),  # Set the panel background color to white
+    plot.background = element_rect(fill = "white"),   # Set the overall plot background color to white
+    legend.background = element_rect(fill = "white")
+  ) +
+  labs(fill = 'Visit Year', x = 'Site Name')
 
-ggsave('maps_graphs/rainfall_sample_dates.png', width = 15, height = 10)
+
+
+ggsave('maps_graphs/rainfall_sample_dates.png', height = 5, width = 10)
+
+
+
