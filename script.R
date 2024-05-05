@@ -307,8 +307,6 @@ emu_pen_veg <- vegPI %>%
 emu_pen_veg$X_plot <- emu_pen_veg$X_plot + eastings
 emu_pen_veg$Y_plot <- emu_pen_veg$Y_plot + northings
 
-
-
 # Create a SpatialPointsDataFrame
 coordinates <- cbind(emu_pen_veg$X_plot, emu_pen_veg$Y_plot)
 crs <- CRS("+proj=utm +zone=54 +south +datum=WGS84")  # Replace with the appropriate CRS for your data
@@ -552,17 +550,96 @@ ausplot_site_dates_long_long %>%
 # plant census ------------------------------------------------------------
 
 install.packages("remotes")
-remotes::install_github("traitecoevo/APCalign")
 
-#arrow error - cannot download APCalign
+install.packages("arrow")
+library(arrow)
+
+remotes::install_github("traitecoevo/APCalign")
 library(APCalign)
 
 resources <- load_taxonomic_resources()
 
-create_taxonomic_update_lookup( 
-  taxa = c(vegPI$herbarium_determination,
+tax_lookup <- create_taxonomic_update_lookup( 
+  taxa = unique(c(vegPI$herbarium_determination,
            vegPI22$field_name,
            vegPI24$field_name
-  ),
+  )),
   resources = resources
 )
+
+threat_tax_lookup <- create_taxonomic_update_lookup( 
+  taxa = threatflora$scientificName,
+  resources = resources
+)
+
+
+# downloading thomas' inat observations -----------------------------------
+
+
+galah_config(email = 'adelegemmell@hotmail.com')
+
+FG_area <- st_read('data/unsw-fowlers.kml')
+
+thomas_obs <- galah_call() |>
+  galah_identify('plantae') |>
+  galah_geolocate(FG_area) |>
+  galah_filter(userId == 'thebeachcomber', year == 2024, month == 3) |>
+  galah_select(genus, month, year, family, userId, group = 'basic') |>
+  atlas_occurrences() 
+
+write.csv(thomas_obs, 'data_out/thomas_obs.csv')
+
+
+# combining rasters -------------------------------------------------------
+
+
+library(raster)
+
+# file directory
+mosaics_dir <- "data/2024_mosaics"
+
+# define order of bands
+desired_band_order <- c("red", "green", "blue", "red_edge", "nir")
+
+# folder list
+folders <- list.dirs(mosaics_dir, full.names = FALSE)
+folders <- folders[folders != ""]
+
+# loop thru each folder 
+for (folder in folders) {
+  # create path
+  folder_path <- file.path(mosaics_dir, folder)
+  
+  # list of tif files
+  tif_files <- list.files(folder_path, pattern = "\\.tif$", full.names = TRUE)
+  
+  # load as raster
+  rasters <- lapply(tif_files, raster)
+  
+  # extract band names from file names
+  band_names <- tools::file_path_sans_ext(basename(tif_files))
+  
+  # stack rasters and assign band names
+  combined_image <- stack(rasters)
+  names(combined_image) <- band_names
+  
+  # reorder the bands based on the desired band order
+  combined_image <- combined_image[[match(desired_band_order, band_names)]]
+  
+  # create output file
+  output_filename <- file.path("data_out", paste0(folder, "_combined_image.tif"))
+  writeRaster(combined_image, filename = output_filename, format = "GTiff", overwrite = TRUE)
+  
+  plot(combined_image)
+}
+
+
+# biodivmapR --------------------------------------------------------------
+
+remotes::install_github('cran/dissUtils')
+remotes::install_github('jbferet/biodivMapR', force = T)
+install.packages("sf")
+library(sf)
+library(stars)
+library(utils)
+
