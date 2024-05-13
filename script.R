@@ -599,7 +599,7 @@ library(raster)
 mosaics_dir <- "data/2024_mosaics"
 
 # define order of bands
-desired_band_order <- c("red", "green", "blue", "red_edge", "nir")
+desired_band_order <- c("blue", "green", "red", "red_edge", "nir")
 
 # folder list
 folders <- list.dirs(mosaics_dir, full.names = FALSE)
@@ -633,13 +633,35 @@ for (folder in folders) {
   plot(combined_image)
 }
 
+emu_exc_raster <- raster('data_out/emu_exc_reflectance_combined_image.tif')
+emu_raster <- raster('data_out/emu_reflectance_combined_image.tif')
+emu_exc_blue <- raster('data/2024_mosaics/emu_exc_reflectance/blue.tif')
+emu_blue <- raster('data/2024_mosaics/emu_reflectance/blue.tif')
+
 
 # biodivmapR --------------------------------------------------------------
 
+# load biodivMapR and useful libraries 
 remotes::install_github('cran/dissUtils')
 remotes::install_github('jbferet/biodivMapR', force = T)
 install.packages("sf")
 library(sf)
 library(stars)
 library(utils)
+
+tmpdir <- 'C:/Users/adele/Documents/fowlers_veg_timeline/biodivmapR'
+NameRaster <- 'cons_reflectance_combined_image.tif'
+destfiletiff <- file.path(tmpdir,NameRaster)
+
+BandName <- c('Band_1', 'Band_2', 'Band_3', 'Band_4', 'Band_5')
+SpectralBands <- c(450, 560, 650, 730, 840)
+WLunits <- 'Nanometers'
+
+## CANT DO THIS - no template for phantom 4. need to create this.
+create_hdr(ImPath = destfiletiff, Sensor = 'Phantom 4', 
+           SpectralBands = SpectralBands,BandName = BandName, WLunits = WLunits)
+
+Input_Image_File <- destfiletiff
+
+Output_Dir <- 'C:/Users/adele/Documents/fowlers_veg_timeline/biodivmapR/RESULTS'
 
