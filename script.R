@@ -13,7 +13,7 @@ install_github("ternaustralia/ausplotsR", build_vignettes = TRUE, dependencies =
 library(ausplotsR)
 library(raster)
 library(RStoolbox)
-
+library(terra)
 
 # ausplot data ------------------------------------------------------------
 
@@ -603,7 +603,9 @@ desired_band_order <- c("blue", "green", "red", "red_edge", "nir")
 
 # folder list
 folders <- list.dirs(mosaics_dir, full.names = FALSE)
-folders <- folders[folders != ""]
+#folders <- folders[folders != ""]
+folders <- folders[folders == 'cons_reflectance']
+
 
 # loop thru each folder 
 for (folder in folders) {
@@ -627,41 +629,700 @@ for (folder in folders) {
   combined_image <- combined_image[[match(desired_band_order, band_names)]]
   
   # create output file
-  output_filename <- file.path("data_out", paste0(folder, "_combined_image.tif"))
-  writeRaster(combined_image, filename = output_filename, format = "GTiff", overwrite = TRUE)
+  #output_filename <- file.path("data_out", paste0(folder, "_combined_image.tif"))
+  #writeRaster(combined_image, filename = output_filename, format = "GTiff", options="INTERLEAVE=BAND", overwrite = TRUE)
   
   plot(combined_image)
-}
-
-emu_exc_raster <- raster('data_out/emu_exc_reflectance_combined_image.tif')
-emu_raster <- raster('data_out/emu_reflectance_combined_image.tif')
-emu_exc_blue <- raster('data/2024_mosaics/emu_exc_reflectance/blue.tif')
-emu_blue <- raster('data/2024_mosaics/emu_reflectance/blue.tif')
 
 
-# biodivmapR --------------------------------------------------------------
+
+# optimum nir/ndvi values -------------------------------------------------
+
+ndvi_values <- read.csv('data/ndvi_less20_both_table.csv')
+nir_values <- read.csv('data/nir_less_05_table.csv')
+
+ggplot(nir_values, aes(x = class, y = nir)) +
+  geom_boxplot() +
+  facet_wrap(~ location) +
+  labs(x = "Cover Type", y = "Reflectance Value") +
+  theme_minimal()
+
+ggplot(nir_values %>% filter(class != "unclear"), aes(x = nir, fill = class)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Distribution of NIR Reflectance Values by Class",
+       x = "NIR Reflectance",
+       y = "Density",
+       fill = "Class") +
+  facet_wrap(~location)
+
+ggplot(ndvi_values %>% filter(class != "unclear"), aes(x = ndviPix, fill = class)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Distribution of NDVI Reflectance Values by Class",
+       x = "NIR Reflectance",
+       y = "Density",
+       fill = "Class") +
+facet_wrap(~location) 
+
+
+# biodivmapR take 2 -------------------------------------------------------
 
 # load biodivMapR and useful libraries 
 remotes::install_github('cran/dissUtils')
 remotes::install_github('jbferet/biodivMapR', force = T)
-install.packages("sf")
+library(biodivMapR)
 library(sf)
 library(stars)
 library(utils)
+library(terra)
+library(raster)
+library(sf)
 
-tmpdir <- 'C:/Users/adele/Documents/fowlers_veg_timeline/biodivmapR'
-NameRaster <- 'cons_reflectance_combined_image.tif'
+#clip cons raster to polygon size
+cons_stack <- stack('data_out/cons_reflectance_combined_image.tif')
+cons_polygon <- st_read('data/cons_shapefile/cons_poly_24.shp') %>% st_zm()
+
+# match crs
+cons_polygon <- st_transform(cons_polygon, crs(cons_stack))
+
+# clip raster to polygon 
+clipped_cons <- terra::mask(cons_stack, cons_polygon)
+
+# reflectance values
+c_reflectance_values <- getValues(clipped_cons)
+
+# convert to 16 bit values
+c_reflectance_values_16 <- round(c_reflectance_values * 10000)
+
+#checking no values are > 65535 (eg. are unsigned, eg floating value = pos)
+max(c_reflectance_values_16 %>% na.omit())
+
+# cons raster with 16 bit values
+clipped_cons_16 <- setValues(clipped_cons, c_reflectance_values_16)
+
+names(clipped_cons_16) <- c("blue", "green", "red", "red_edge", "nir")
+
+plot(clipped_cons_16)
+
+# save
+writeRaster(clipped_cons_16, filename = "data_out/cons_reflectance_combined_image_16", format = "GTiff", options="INTERLEAVE=BAND", datatype='INT2U', overwrite=TRUE)
+
+rasttif <- terra::rast('data_out/cons_reflectance_combined_image_16.tif')
+names(rasttif) <- c("blue", "green", "red", "red_edge", "nir")
+terra::writeRaster(x = rasttif, filename = "ENVI/cons_reflectance_combined_image_16", filetype = 'ENVI', overwrite = T)
+
+tmpdir <- 'C:/Users/adele/Documents/fowlers_veg_timeline/ENVI'
+NameRaster <- 'cons_reflectance_combined_image_16'
 destfiletiff <- file.path(tmpdir,NameRaster)
-
-BandName <- c('Band_1', 'Band_2', 'Band_3', 'Band_4', 'Band_5')
-SpectralBands <- c(450, 560, 650, 730, 840)
-WLunits <- 'Nanometers'
-
-## CANT DO THIS - no template for phantom 4. need to create this.
-create_hdr(ImPath = destfiletiff, Sensor = 'Phantom 4', 
-           SpectralBands = SpectralBands,BandName = BandName, WLunits = WLunits)
 
 Input_Image_File <- destfiletiff
 
+
+# Set to FALSE if no mask available
+Input_Mask_File <- FALSE
+
 Output_Dir <- 'C:/Users/adele/Documents/fowlers_veg_timeline/biodivmapR/RESULTS'
+
+NDVI_Thresh <- 0.05
+Blue_Thresh <- 1500
+NIR_Thresh <- (0.02*10000)
+
+# continuum removal is a normalisation procedure which reduces multiplicative effects
+Continuum_Removal <- TRUE
+
+TypePCA <- 'SPCA'
+
+# PCA FILTERING:        Set to TRUE if you want second filtering based on PCA outliers to be processed.
+# Slower process
+# Automatically set to FALSE if TypePCA     = 'MNF'
+FilterPCA <- FALSE
+
+window_size <- 10
+
+nbCPU <- 10
+MaxRAM <- 0.5
+
+# number of clusters
+nbclusters <- 50
+
+Excluded_WL <- NA
+
+Input_Mask_File <- perform_radiometric_filtering(Image_Path = Input_Image_File, Mask_Path = Input_Mask_File,
+                                                 Output_Dir = Output_Dir, TypePCA = TypePCA,
+                                                 NDVI_Thresh = NDVI_Thresh, Blue_Thresh = Blue_Thresh,
+                                                 NIR_Thresh = NIR_Thresh,
+                                                 Blue = 450,
+                                                 Red = 650,
+                                                 NIR = 840)
+
+PCA_Output <- perform_PCA(Input_Image_File = Input_Image_File, 
+                          Input_Mask_File = Input_Mask_File,
+                          Output_Dir = Output_Dir, 
+                          TypePCA = TypePCA, 
+                          FilterPCA = FilterPCA,
+                          nbCPU = nbCPU, 
+                          MaxRAM = MaxRAM, 
+                          Continuum_Removal = Continuum_Removal)
+
+# path of the raster resulting from dimensionality reduction
+PCA_Files <- PCA_Output$PCA_Files
+# path for the updated mask
+Input_Mask_File <- PCA_Output$MaskPath
+
+Sel_PC <- select_PCA_components(Input_Image_File = Input_Image_File,
+                                Output_Dir = Output_Dir, 
+                                PCA_Files = PCA_Output$PCA_Files,
+                                TypePCA = PCA_Output$TypePCA, 
+                                File_Open = TRUE)
+
+Kmeans_info <- map_spectral_species(Input_Image_File = Input_Image_File,
+                                    Input_Mask_File = Input_Mask_File,
+                                    Output_Dir = Output_Dir,
+                                    SpectralSpace_Output = PCA_Output, 
+                                    nbclusters = nbclusters, 
+                                    nbCPU = nbCPU, MaxRAM = MaxRAM)
+
+
+
+Index_Alpha <- c('Shannon')
+
+window_size <- 1250
+map_alpha_div(Input_Image_File = Input_Image_File, 
+              Output_Dir = Output_Dir, 
+              TypePCA = TypePCA,
+              window_size = window_size, 
+              nbCPU = nbCPU, 
+              MaxRAM = MaxRAM,
+              Index_Alpha = Index_Alpha, 
+              nbclusters = nbclusters)
+??map_alpha_div
+
+con_shan_10 <- rast('biodivmapR/RESULTS/cons_reflectance_combined_image_16/SPCA/ALPHA/Shannon_10')
+con_simp_10 <- rast('biodivmapR/RESULTS/cons_reflectance_combined_image_16/SPCA/ALPHA/Simpson_10')
+
+plot(con_shan_10)
+plot(con_simp_10)
+
+con_shan_1250 <- rast('biodivmapR/RESULTS/cons_reflectance_combined_image_16/SPCA/ALPHA/Shannon_1250')
+
+plot(con_shan_1250)
+
+# could i add a red filter for bare ground to 
+# perform_radiometric_filtering via create_mask_from_threshold function?
+
+
+# biodivmapR again - unclipped --------------------------------------------
+
+# load biodivMapR and useful libraries 
+remotes::install_github('cran/dissUtils')
+remotes::install_github('jbferet/biodivMapR', force = T)
+library(biodivMapR)
+library(sf)
+library(stars)
+library(utils)
+library(terra)
+library(raster)
+
+tmpdir <- 'C:/Users/adele/Documents/fowlers_veg_timeline/ENVI'
+NameRaster <- 'cons_reflectance_combined_image_2'
+destfiletiff <- file.path(tmpdir,NameRaster)
+
+Input_Image_File <- destfiletiff
+
+# Set to FALSE if no mask available
+Input_Mask_File <- FALSE
+
+Output_Dir <- 'C:/Users/adele/Documents/fowlers_veg_timeline/biodivmapR/RESULTS'
+
+NDVI_Thresh <- 0.05
+Blue_Thresh <- 1500/10000
+NIR_Thresh <- 0.02
+
+# continuum removal is a normalisation procedure which reduces multiplicative effects
+Continuum_Removal <- TRUE
+
+TypePCA <- 'SPCA'
+
+# PCA FILTERING:        Set to TRUE if you want second filtering based on PCA outliers to be processed.
+# Slower process
+# Automatically set to FALSE if TypePCA     = 'MNF'
+FilterPCA <- FALSE
+
+window_size <- 10
+
+nbCPU <- 10
+MaxRAM <- 0.5
+
+# number of clusters
+nbclusters <- 50
+
+Excluded_WL <- NA
+
+Input_Mask_File <- perform_radiometric_filtering(Image_Path = Input_Image_File, Mask_Path = Input_Mask_File,
+                                                 Output_Dir = Output_Dir, TypePCA = TypePCA,
+                                                 NDVI_Thresh = NDVI_Thresh, Blue_Thresh = Blue_Thresh,
+                                                 NIR_Thresh = NIR_Thresh,
+                                                 Blue = 450,
+                                                 Red = 650,
+                                                 NIR = 840)
+
+PCA_Output <- perform_PCA(Input_Image_File = Input_Image_File, 
+                          Input_Mask_File = FALSE,
+                          Output_Dir = Output_Dir, 
+                          TypePCA = TypePCA, 
+                          FilterPCA = FilterPCA,
+                          nbCPU = nbCPU, 
+                          MaxRAM = MaxRAM, 
+                          Continuum_Removal = Continuum_Removal)
+
+# path of the raster resulting from dimensionality reduction
+PCA_Files <- PCA_Output$PCA_Files
+# path for the updated mask
+Input_Mask_File <- PCA_Output$MaskPath
+
+Sel_PC <- select_PCA_components(Input_Image_File = Input_Image_File,
+                                Output_Dir = Output_Dir, 
+                                PCA_Files = PCA_Output$PCA_Files,
+                                TypePCA = PCA_Output$TypePCA, 
+                                File_Open = TRUE)
+
+Kmeans_info <- map_spectral_species(Input_Image_File = Input_Image_File,
+                                    Input_Mask_File = F,
+                                    Output_Dir = Output_Dir,
+                                    SpectralSpace_Output = PCA_Output, 
+                                    nbclusters = nbclusters, 
+                                    nbCPU = nbCPU, MaxRAM = MaxRAM)
+
+
+
+Index_Alpha <- c('Simpson')
+
+window_size <- 10
+map_alpha_div(Input_Image_File = Input_Image_File, 
+              Output_Dir = Output_Dir, 
+              TypePCA = TypePCA,
+              window_size = window_size, 
+              nbCPU = nbCPU, 
+              MaxRAM = MaxRAM,
+              Index_Alpha = Index_Alpha, 
+              nbclusters = nbclusters)
+
+
+con_shan_10 <- rast('biodivmapR/RESULTS/cons_reflectance_combined_image_2/SPCA/ALPHA/Shannon_10')
+con_simp_10 <- rast('biodivmapR/RESULTS/cons_reflectance_combined_image_2/SPCA/ALPHA/Simpson_10')
+
+plot(con_shan_10)
+
+writeRaster(con_shan_10, 'biodivmapR/RESULTS/cons_reflectance_combined_image_2/SPCA/ALPHA/Shannon_10.tif', NAflag = 0)
+writeRaster(con_simp_10, 'biodivmapR/RESULTS/cons_reflectance_combined_image_2/SPCA/ALPHA/Simpson_10.tif', NAflag = 0)
+
+?writeRaster
+
+
+# mEd ---------------------------------------------------------------------
+# clip conservation raster by conservation polygon ... let's see how we go
+
+library(terra)
+
+cons_raster <- stack('data_out/cons_reflectance_combined_image.tif')
+cons_polygon <- st_read('data/cons_shapefile/cons_poly_24.shp') %>%
+  st_zm()
+
+??crop
+
+clipped_cons <- terra::mask(cons_raster, cons_polygon)
+plot(clipped_cons)
+
+st_area(cons_polygon) #10085.4m2
+
+plot(clipped_cons)
+
+#70832525 of 107476308 NA?
+c_spectral_data <- as.data.frame(getValues(clipped_cons)) %>%
+  na.omit()
+
+calculate_mean_euclidean_distance <- function(spectral_data) {
+  dist_matrix <- as.matrix(dist(spectral_data))
+  mean_distance <- mean(dist_matrix)
+  return(mean_distance)
+}
+#  can't do this because it will require 5000000 GB hahhaahhahahahaha 
+mean_distance_entire_raster <- calculate_mean_euclidean_distance(c_spectral_data)
+print(mean_distance_entire_raster)
+
+
+# co-efficient of variance metrics ------------------------------------------------
+
+#read in subplot dimensions
+subplot_dimensions <- read.csv('data/cons_fishnet_simpson_nd0.csv') %>%
+  dplyr::select(c(1:3, 6, 15:20))
+
+subplot_ids <- unlist(lapply(1:5, function(i) paste(i, 1:5, sep="_")))
+
+subplot_dimensions <- subplot_dimensions %>% mutate(subplot_id = subplot_ids)
+
+raster_data <- stack('data_out/cons_reflectance_combined_image.tif')
+
+extract_pixel_values <- function(raster_data, min_x, max_x, min_y, max_y) {
+  # define the extent
+  extent <- extent(min_x, max_x, min_y, max_y)
+  
+  # crop the raster to the extent
+  cropped_raster <- crop(raster_data, extent)
+  
+  # extract pixel values
+  pixel_values <- getValues(cropped_raster)
+  
+  # remove NA values (if any)
+  pixel_values <- pixel_values[!is.na(pixel_values)]
+  
+  return(pixel_values)
+}
+
+# empty df for results
+results <- data.frame(subplot_id = character(), CV = numeric(), stringsAsFactors = FALSE)
+
+# CV function
+calculate_cv <- function(values) {
+  if (length(values) > 0) {
+    return(sd(values) / mean(values) * 100)
+  } else {
+    return(NA)
+  }
+}
+
+# loop through each subplot
+for (i in 1:nrow(subplot_dimensions)) {
+  subplot_id <- subplot_dimensions$subplot_id[i]
+  min_x <- subplot_dimensions$Min_x_coord[i]
+  max_x <- subplot_dimensions$Max_x_coord[i]
+  min_y <- subplot_dimensions$Min_y_coord[i]
+  max_y <- subplot_dimensions$Max_y_coord[i]
+  
+  # extract pixel values
+  pixel_values <- extract_pixel_values(raster_data, min_x, max_x, min_y, max_y)
+  
+  # calculate CV
+  cv_value <- calculate_cv(pixel_values)
+  
+  # store the result
+  results <- rbind(results, data.frame(subplot_id = subplot_id, CV = cv_value))
+}
+
+# Print the results
+print(results)
+
+## NOW FOR THE MASKED RASTER 
+install.packages('stars')
+library(stars)
+library(raster)
+
+mask <- read_stars('biodivmapR/RESULTS/cons_reflectance_combined_image/SPCA/ShadeMask_Update')
+
+mask <- as(mask, "Raster")
+
+raster_data_masked <- mask(raster_data, mask)
+
+extract_pixel_values_m <- function(raster_data_masked, min_x, max_x, min_y, max_y) {
+  # define the extent
+  extent <- extent(min_x, max_x, min_y, max_y)
+  
+  # crop the raster to the extent
+  cropped_raster_m <- crop(raster_data_masked, extent)
+  
+  # extract pixel values
+  pixel_values_m <- getValues(cropped_raster_m)
+  
+  # remove NA values (if any)
+  pixel_values_m <- pixel_values_m[!is.na(pixel_values_m)]
+  
+  return(pixel_values_m)
+}
+
+# empty df for results
+results_masked <- data.frame(subplot_id = character(), CV = numeric(), stringsAsFactors = FALSE)
+
+# CV function
+calculate_cv <- function(values) {
+  if (length(values) > 0) {
+    return(sd(values) / mean(values) * 100)
+  } else {
+    return(NA)
+  }
+}
+
+# loop through each subplot
+for (i in 1:nrow(subplot_dimensions)) {
+  subplot_id <- subplot_dimensions$subplot_id[i]
+  min_x <- subplot_dimensions$Min_x_coord[i]
+  max_x <- subplot_dimensions$Max_x_coord[i]
+  min_y <- subplot_dimensions$Min_y_coord[i]
+  max_y <- subplot_dimensions$Max_y_coord[i]
+  
+  # extract pixel values
+  pixel_values_m <- extract_pixel_values(raster_data_masked, min_x, max_x, min_y, max_y)
+  
+  # calculate CV
+  cv_value <- calculate_cv(pixel_values_m)
+  
+  # store the result
+  results_masked <- rbind(results_masked, data.frame(subplot_id = subplot_id, CV = cv_value))
+}
+
+# Print the results
+print(results_masked)
+
+# field diversity ---------------------------------------------------------
+library(vegan)
+
+survey_data <- read.csv('data/ausplots_march_24.csv')
+cons_survey_data <- survey_data %>%
+  filter(site_unique == 'NSABHC012')
+
+# Extract only direction of the transect (no numbers)
+cons_survey_data$transect_direction <- gsub('[[:digit:]]+', '', cons_survey_data$transect)
+
+# Extract only number of the transect (no direction)
+cons_survey_data$transect_number <- as.numeric(gsub(".*?([0-9]+).*", "\\1", cons_survey_data$transect))
+
+# Create variable for fixed transect direction (to order them all transects in the same direction)
+cons_survey_data$transect_direction2 <- NA 
+
+# Create variable for fixed point number (inverse in some cases as if they had been collected in the same direction)
+cons_survey_data$point_number2 <- NA 
+
+# Create XY empty variables for plot XY coordinates
+cons_survey_data$X_plot <- NA 
+cons_survey_data$Y_plot <- NA
+
+# For loop to homogenize transects and numbers. It converts all E-W to W-E and all S-N to N-S
+for (i in 1:nrow(cons_survey_data)){
+  if (cons_survey_data[i, "transect_direction"] == "E-W") {
+    cons_survey_data[i, "point_number2"] <- 100 - cons_survey_data[i, "point_number"] # If transect E-W, transect fixed is W-E and inverse numbers
+    cons_survey_data[i, "transect_direction2"] <- "W-E"
+  }
+  if (cons_survey_data[i, "transect_direction"] == "W-E") {
+    cons_survey_data[i, "point_number2"] <- cons_survey_data[i, "point_number"] # If transect W-E, all stays the same
+    cons_survey_data[i, "transect_direction2"] <- "W-E"
+  }
+  if (cons_survey_data[i, "transect_direction"] == "N-S") {
+    cons_survey_data[i, "point_number2"] <- cons_survey_data[i, "point_number"] # If transect N-S, all stays the same
+    cons_survey_data[i, "transect_direction2"] <- "N-S"
+  }
+  if (cons_survey_data[i, "transect_direction"] == "S-N") {
+    cons_survey_data[i, "point_number2"] <- 100 - cons_survey_data[i, "point_number"] # If transect S-N, transect fixed is N-S and inverse numbers
+    cons_survey_data[i, "transect_direction2"] <- "N-S"
+  }
+}
+
+# For loop to assign plotXY coordinates to each point intercept
+for (i in 1:nrow(cons_survey_data)){
+  if (cons_survey_data[i, "transect_direction2"] == "W-E") {
+    if (cons_survey_data[i, "transect_number"] == 1){
+      cons_survey_data[i, "Y_plot"] <- 10
+      cons_survey_data[i, "X_plot"] <- cons_survey_data[i, "point_number2"]
+    }
+    if (cons_survey_data[i, "transect_number"] == 2){
+      cons_survey_data[i, "Y_plot"] <- 30
+      cons_survey_data[i, "X_plot"] <- cons_survey_data[i, "point_number2"]
+    }
+    if (cons_survey_data[i, "transect_number"] == 3){
+      cons_survey_data[i, "Y_plot"] <- 50
+      cons_survey_data[i, "X_plot"] <- cons_survey_data[i, "point_number2"]
+    }
+    if (cons_survey_data[i, "transect_number"] == 4){
+      cons_survey_data[i, "Y_plot"] <- 70
+      cons_survey_data[i, "X_plot"] <- cons_survey_data[i, "point_number2"]
+    }
+    if (cons_survey_data[i, "transect_number"] == 5){
+      cons_survey_data[i, "Y_plot"] <- 90
+      cons_survey_data[i, "X_plot"] <- cons_survey_data[i, "point_number2"]
+    }
+  }
+  if (cons_survey_data[i, "transect_direction2"] == "N-S") {
+    if (cons_survey_data[i, "transect_number"] == 1){
+      cons_survey_data[i, "X_plot"] <- 10
+      cons_survey_data[i, "Y_plot"] <- cons_survey_data[i, "point_number2"]
+    }
+    if (cons_survey_data[i, "transect_number"] == 2){
+      cons_survey_data[i, "X_plot"] <- 30
+      cons_survey_data[i, "Y_plot"] <- cons_survey_data[i, "point_number2"]
+    }
+    if (cons_survey_data[i, "transect_number"] == 3){
+      cons_survey_data[i, "X_plot"] <- 50
+      cons_survey_data[i, "Y_plot"] <- cons_survey_data[i, "point_number2"]
+    }
+    if (cons_survey_data[i, "transect_number"] == 4){
+      cons_survey_data[i, "X_plot"] <- 70
+      cons_survey_data[i, "Y_plot"] <- cons_survey_data[i, "point_number2"]
+    }
+    if (cons_survey_data[i, "transect_number"] == 5){
+      cons_survey_data[i, "X_plot"] <- 90
+      cons_survey_data[i, "Y_plot"] <- cons_survey_data[i, "point_number2"]
+    }
+  }
+}
+
+cons_survey_data %>%
+  drop_na(standardised_name) %>%
+  ggplot(aes(x = X_plot, y = Y_plot, color = growth_form)) +
+  geom_point() +
+  theme_classic()
+
+# subplot rows and columns - +1 ensures 0 point values fall into correct subplot, 
+# pmin ensures 100 point values falls in correct subplot given +1
+
+cons_survey_data$subplot_row <- pmin(ceiling((cons_survey_data$Y_plot + 1) / 20), 5)
+cons_survey_data$subplot_col <- pmin(ceiling((cons_survey_data$X_plot + 1) / 20), 5)
+
+# single ID for subplot row and column
+cons_survey_data$subplot_id <- paste(cons_survey_data$subplot_row, cons_survey_data$subplot_col, sep = "_")
+
+subplot_diversity <- cons_survey_data %>%
+  drop_na(standardised_name) %>%
+  group_by(subplot_id) %>%
+  summarise(species_richness = n_distinct(standardised_name))
+
+community_matrix <- cons_survey_data %>%
+  drop_na(standardised_name) %>%
+  count(subplot_id, standardised_name) %>%
+  spread(standardised_name, n, fill = 0)
+
+#column V1? what is zis??? 
+if ("V1" %in% colnames(community_matrix)) {
+  community_matrix <- community_matrix %>% 
+    dplyr::select(-V1)
+}
+
+# calculate diversity indices
+shannon_diversity <- diversity(community_matrix[, -1], index = "shannon")
+simpson_diversity <- diversity(community_matrix[, -1], index = "simpson")
+
+#read in biodivmapR values from arcgis table
+cons_simpson_biodivmapR <- read.csv('data/cons_fishnet_simpson_nd0.csv') %>%
+  dplyr::select(10)
+
+cons_shannon_biodivmapR <- read.csv('data/shannon_nd0_cons.csv') %>%
+  dplyr::select(7)
+
+#read in biodivmapR values from arcgis table for NON MASKED raster
+cons_nm_simpson_biodivmapR <- read.csv('data/simpson_not_masked_cons.csv') %>%
+  dplyr::select(16)
+
+cons_nm_shannon_biodivmapR <- read.csv('data/shannon_not_masked_cons.csv') %>%
+  dplyr::select(16)
+
+
+# need to run the CV code which is further down for this to work! 
+# (the cv and biodivmapRSimpson lines)
+# tidy up your code bishhh
+
+subplot_diversity <- subplot_diversity %>%
+  mutate(
+    shannon_diversity = shannon_diversity,
+    simpson_diversity = simpson_diversity,
+    cv = results$CV,
+    cv_masked = results_masked$CV,
+    shannon_biodivmapR = cons_shannon_biodivmapR$MEAN,
+    simpson_biodivmapR = cons_simpson_biodivmapR$MEAN,
+    shannon_non_mask_biodivmapR = cons_nm_shannon_biodivmapR$MEAN,
+    simspon_non_mask_biodivmapR = cons_nm_simpson_biodivmapR$MEAN
+  )
+
+subplot_coordinates <- cons_survey_data %>%
+  dplyr::select(subplot_id, X_plot, Y_plot) %>%
+  distinct()
+
+# merge coords 
+subplot_diversity_c <- subplot_diversity %>%
+  left_join(subplot_coordinates, by = "subplot_id")
+
+
+# shannon's diversity
+ggplot(subplot_diversity_c, aes(x = X_plot, y = Y_plot)) +
+  geom_tile(aes(fill = shannon_diversity), color = "white") +
+  scale_fill_viridis_c() +
+  theme_classic() +
+  labs(fill = "Shannon's Diversity")
+
+# simpson's diversity
+ggplot(subplot_diversity_c, aes(x = X_plot, y = Y_plot)) +
+  geom_tile(aes(fill = simpson_diversity), color = "white") +
+  scale_fill_viridis_c() +
+  theme_classic() +
+  labs(fill = "Simpson's Diversity")
+
+
+df_long <- subplot_diversity %>%
+  dplyr::select(shannon_diversity, shannon_biodivmapR, shannon_non_mask_biodivmapR) %>%
+  pivot_longer(cols = c(shannon_biodivmapR, shannon_non_mask_biodivmapR), 
+               names_to = "variable", 
+               values_to = "value")
+
+ggplot(df_long, aes(x = shannon_diversity, y = value, color = variable)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  labs(x = "Shannon Diversity", y = "Value") +
+  theme_minimal()
+
+
+# biodivmapR values -------------------------------------------------------
+
+
+
+ggplot(data = subplot_diversity, aes(x = shannon_diversity, y = shannon_biodivmapR)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  labs(
+    title = "Shannon Diversity vs. Shannon BiodivmapR",
+    x = "Shannon Diversity - field",
+    y = "Shannon Diversity - biodivmapR"
+  ) +
+  theme_minimal()
+
+model <- lm(shannon_biodivmapR ~ shannon_diversity, data = subplot_diversity)
+summary(model)
+
+cor_test <- cor.test(subplot_diversity$shannon_diversity, subplot_diversity$shannon_biodivmapR)
+cor_test$estimate
+
+
+cv_long <- subplot_diversity %>%
+  select(shannon_diversity, cv, cv_masked) %>%
+  pivot_longer(cols = c(cv, cv_masked), 
+               names_to = "variable", 
+               values_to = "value")
+
+# Create the line graph
+ggplot(cv_long, aes(x = shannon_diversity, y = value, color = variable, group = variable)) +
+  geom_line() +
+  labs(x = "Shannon Diversity", y = "CV value") +
+  theme_minimal()
+
+ggplot(data = subplot_diversity, aes(x = shannon_diversity, y = cv)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  labs(
+    title = "Shannon Diversity vs. CV",
+    x = "Shannon Diversity - field",
+    y = "Co-efficient of variance"
+  ) +
+  theme_minimal()
+
+model <- lm(cv ~ shannon_diversity, data = subplot_diversity)
+summary(model)
+
+cor_test <- cor.test(subplot_diversity$shannon_diversity, subplot_diversity$cv)
+cor_test$estimate
+
+# to do list
+# apply subplot ids to the spectral values data frame 
+# create chv formula 
+# consider sv formula?
+# mEd method? 
+# compare simp, shan for unmasked stuff
+# pielou's evenness?
+# functional diversity traits? which ones - think, causal, foliar? 
+# check austraits for said traits
 
