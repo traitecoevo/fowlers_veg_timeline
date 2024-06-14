@@ -984,7 +984,7 @@ results <- data.frame(subplot_id = character(), CV = numeric(), stringsAsFactors
 # CV function
 calculate_cv <- function(values) {
   if (length(values) > 0) {
-    return(sd(values) / mean(values) * 100)
+    return(sd(values) / mean(values))
   } else {
     return(NA)
   }
@@ -1018,9 +1018,12 @@ library(raster)
 
 mask <- read_stars('biodivmapR/RESULTS/cons_reflectance_combined_image/SPCA/ShadeMask_Update')
 
-mask <- as(mask, "Raster")
+mask_raster <- as(mask, "Raster")
+mask_raster[mask_raster == 0] <- NA
 
-raster_data_masked <- mask(raster_data, mask)
+raster_data_masked <- mask(raster_data, mask_raster)
+
+plot(raster_data_masked)
 
 extract_pixel_values_m <- function(raster_data_masked, min_x, max_x, min_y, max_y) {
   # define the extent
@@ -1258,6 +1261,8 @@ df_long <- subplot_diversity %>%
                names_to = "variable", 
                values_to = "value")
 
+
+#shannons compared
 ggplot(df_long, aes(x = shannon_diversity, y = value, color = variable)) +
   geom_point() +
   geom_smooth(method = "lm", se = FALSE) +
@@ -1267,8 +1272,6 @@ ggplot(df_long, aes(x = shannon_diversity, y = value, color = variable)) +
 
 
 # biodivmapR values -------------------------------------------------------
-
-
 
 ggplot(data = subplot_diversity, aes(x = shannon_diversity, y = shannon_biodivmapR)) +
   geom_point() +
@@ -1294,9 +1297,10 @@ cv_long <- subplot_diversity %>%
                names_to = "variable", 
                values_to = "value")
 
-# Create the line graph
+
 ggplot(cv_long, aes(x = shannon_diversity, y = value, color = variable, group = variable)) +
-  geom_line() +
+  geom_point() +
+  geom_smooth(method = 'lm', se = F) + 
   labs(x = "Shannon Diversity", y = "CV value") +
   theme_minimal()
 
@@ -1316,12 +1320,158 @@ summary(model)
 cor_test <- cor.test(subplot_diversity$shannon_diversity, subplot_diversity$cv)
 cor_test$estimate
 
+
+# convex hull volume ------------------------------------------------------
+
+# from crofts - https://github.com/ALCrofts/CABO_SVH_Forest_Sites/tree/v1.0
+
+calc.CHV <- function(spectral_df, # Dataframe with spectral reflectance values
+                     areas_of_interest, # What you want to calculate spectral diversity for, ie. grouping variable, here it is plots. 
+                     wavelengths, # Cols where spectral reflectance values are
+                     rarefraction, # If TRUE, spectral observations are standardized and randomly resampled. If FALSE, uses all spectral observations as is. 
+                     n # Number of random resampling events, if rarefraction = T.
+){  
+  
+  if(rarefraction == TRUE){
+    
+    # a) Determine min number of spectral points/pixels observed in a plot  
+    spectral_points <- spectral_df %>% 
+      group_by({{areas_of_interest}}) %>%
+      summarise(points = n())
+    
+    min_points = min(spectral_points$points)
+    
+    # 1b) Ordinate the data  
+    PCA <- spectral_df %>%
+      select(c({{wavelengths}})) %>%
+      rda(scale = F) 
+    
+    # 2b) Create a dataframe of the first 3 PC axes
+    PCA_scores <- data.frame(PCA$CA$u) %>%
+      select(c(1:3)) %>%
+      cbind({{spectral_df}}) %>%
+      select(c('PC1', 'PC2', 'PC3', {{areas_of_interest}}))
+    
+    # c) Convert to quoted areas_of_interest object, needed to name list objects created in next step.
+    areas_of_interest2 <- deparse(substitute(areas_of_interest))
+    
+    # d) calculate average CHV for each plot across all resampling events
+    CHV <- PCA_scores %>%
+      group_split({{areas_of_interest}}) %>% # split by plot
+      set_names(map(., ~unique(.[[areas_of_interest2]]))) %>% # assign plot names to list objects 
+      map(~replicate(n,
+                     .x %>%
+                       group_by({{areas_of_interest}}) %>%
+                       sample_n(min_points, replace = F), F) %>% # resample PC scores n-times and retain the minimum number of observed spectral observations, where resampling occurs without replacement  
+            map(~convhulln(.x[-4], option = 'FA')) %>% # fit convex hulls to each plot and each resampling event
+            map_dbl('vol')) %>% # retain the convex hull volume for each plot and each resampling event
+      map_df(~mean(.x)) %>% # calculate mean CHV for each plot across all resampling events
+      do.call(rbind, .) %>% # collapse to dataframe of plots and CHV
+      as.data.frame() %>%
+      rownames_to_column('plot_field_id') %>%
+      rename(CHV = V1)
+    
+    rm(areas_of_interest2)
+    
+    return(CHV)
+  }
+  
+  if(rarefraction == FALSE){
+    
+    areas_of_interest2 <- deparse(substitute(areas_of_interest))
+    
+    PCA2 <- spectral_df %>%
+      select(c({{wavelengths}})) %>%
+      rda(scale = F) 
+    
+    CHV2 <- data.frame(PCA2$CA$u) %>%
+      select(c(1:3)) %>%
+      cbind({{spectral_df}}) %>%
+      select(c('PC1', 'PC2', 'PC3', {{areas_of_interest}})) %>%
+      group_split({{areas_of_interest}}) %>%
+      set_names(map(., ~unique(.[[areas_of_interest2]]))) %>%
+      map(~convhulln(.x[-4], option = 'FA')) %>%
+      map_dbl('vol') %>%
+      as.data.frame() %>%
+      rownames_to_column('plot_field_id') %>%
+      rename(CHV = '.')
+    
+    rm(areas_of_interest2) 
+    
+    return(CHV2)
+  }
+  
+}
+
+names(raster_data) <- c("blue", "green", "red", "red_edge", "nir")
+
+c_spectral_data <- as.data.frame(getValues(raster_data)) %>%
+  na.omit()
+
+raster_coords <- coordinates(raster_data)
+raster_values <- getValues(raster_data)
+
+c_spectral_data <- as.data.frame(cbind(raster_coords, raster_values)) %>%
+  na.omit()
+
+
+
+
+
+
+
+
+## ALL OF THESE TAKE A REALLY REALLY LONG TIME
+
+# approach 1
+
+# determine which subplot a point belongs to
+get_subplot_id <- function(x, y, subplot_df) {
+  subplot <- subplot_df %>%
+    filter(x >= Min_x_coord & x <= Max_x_coord & y >= Min_y_coord & y <= Max_y_coord)
+  
+  if (nrow(subplot) == 1) {
+    return(subplot$subplot_id)
+  } else {
+    return(NA)  # Return NA if the point does not belong to any subplot
+  }
+}
+
+# apply to each pixel in c_spectral_data
+c_spectral_data$subplot_id <- mapply(get_subplot_id, c_spectral_data$x, c_spectral_data$y, MoreArgs = list(subplot_df = subplot_dimensions))
+
+# approach 2
+# Convert raster data to sf object
+c_spectral_data_sf <- st_as_sf(c_spectral_data, coords = c("x", "y"), crs = st_crs(raster_data))
+
+# Function to create closed polygons
+create_polygon <- function(min_x, min_y, max_x, max_y) {
+  st_polygon(list(matrix(c(min_x, min_y, 
+                           max_x, min_y, 
+                           max_x, max_y, 
+                           min_x, max_y, 
+                           min_x, min_y), # Closing the polygon
+                         ncol = 2, byrow = TRUE)))
+}
+
+# Convert subplot dimensions to sf object
+subplot_dimensions_sf <- subplot_dimensions %>%
+  rowwise() %>%
+  mutate(geometry = st_sfc(create_polygon(Min_x_coord, Min_y_coord, Max_x_coord, Max_y_coord))) %>%
+  st_as_sf(crs = st_crs(raster_data))
+
+# Perform spatial join
+c_spectral_data_sf <- st_join(c_spectral_data_sf, subplot_dimensions_sf, join = st_within)
+
+# Convert back to dataframe if needed
+c_spectral_data_2 <- as.data.frame(c_spectral_data_sf)
+
 # to do list
 # apply subplot ids to the spectral values data frame 
-# create chv formula 
+# create chv formula - DONE (copied from crofts - need to do above to be able to use it)
 # consider sv formula?
 # mEd method? 
-# compare simp, shan for unmasked stuff
+# compare simp, shan for unmasked stuff - DONE
 # pielou's evenness?
 # functional diversity traits? which ones - think, causal, foliar? 
 # check austraits for said traits
