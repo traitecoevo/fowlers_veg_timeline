@@ -1,1 +1,0 @@
-{"height":432.6328800988875,"width":700.0,"size_behavior":0,"conditions":[[1,"Warning: NAs introduced by coercion"],[1,"Warning: \u001B[38;5;242mRemoved 430 rows containing non-finite values (`stat_count()`).\u001B[39m"],[1,"Warning: \u001B[38;5;242mRemoved 1 row containing missing values (`geom_line()`).\u001B[39m"]]}

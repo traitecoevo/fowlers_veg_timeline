@@ -603,9 +603,7 @@ desired_band_order <- c("blue", "green", "red", "red_edge", "nir")
 
 # folder list
 folders <- list.dirs(mosaics_dir, full.names = FALSE)
-#folders <- folders[folders != ""]
-folders <- folders[folders == 'cons_reflectance']
-
+folders <- folders[folders != ""]
 
 # loop thru each folder 
 for (folder in folders) {
@@ -629,11 +627,11 @@ for (folder in folders) {
   combined_image <- combined_image[[match(desired_band_order, band_names)]]
   
   # create output file
-  #output_filename <- file.path("data_out", paste0(folder, "_combined_image.tif"))
-  #writeRaster(combined_image, filename = output_filename, format = "GTiff", options="INTERLEAVE=BAND", overwrite = TRUE)
+  output_filename <- file.path("data_out", paste0(folder, "_combined_image.tif"))
+  writeRaster(combined_image, filename = output_filename, format = "GTiff", options="INTERLEAVE=BAND", overwrite = TRUE)
   
   plot(combined_image)
-
+}
 
 
 # optimum nir/ndvi values -------------------------------------------------
@@ -663,8 +661,7 @@ ggplot(ndvi_values %>% filter(class != "unclear"), aes(x = ndviPix, fill = class
        fill = "Class") +
 facet_wrap(~location) 
 
-
-# biodivmapR take 2 -------------------------------------------------------
+# biodivmapR --------------------------------------------
 
 # load biodivMapR and useful libraries 
 remotes::install_github('cran/dissUtils')
@@ -675,47 +672,12 @@ library(stars)
 library(utils)
 library(terra)
 library(raster)
-library(sf)
-
-#clip cons raster to polygon size
-cons_stack <- stack('data_out/cons_reflectance_combined_image.tif')
-cons_polygon <- st_read('data/cons_shapefile/cons_poly_24.shp') %>% st_zm()
-
-# match crs
-cons_polygon <- st_transform(cons_polygon, crs(cons_stack))
-
-# clip raster to polygon 
-clipped_cons <- terra::mask(cons_stack, cons_polygon)
-
-# reflectance values
-c_reflectance_values <- getValues(clipped_cons)
-
-# convert to 16 bit values
-c_reflectance_values_16 <- round(c_reflectance_values * 10000)
-
-#checking no values are > 65535 (eg. are unsigned, eg floating value = pos)
-max(c_reflectance_values_16 %>% na.omit())
-
-# cons raster with 16 bit values
-clipped_cons_16 <- setValues(clipped_cons, c_reflectance_values_16)
-
-names(clipped_cons_16) <- c("blue", "green", "red", "red_edge", "nir")
-
-plot(clipped_cons_16)
-
-# save
-writeRaster(clipped_cons_16, filename = "data_out/cons_reflectance_combined_image_16", format = "GTiff", options="INTERLEAVE=BAND", datatype='INT2U', overwrite=TRUE)
-
-rasttif <- terra::rast('data_out/cons_reflectance_combined_image_16.tif')
-names(rasttif) <- c("blue", "green", "red", "red_edge", "nir")
-terra::writeRaster(x = rasttif, filename = "ENVI/cons_reflectance_combined_image_16", filetype = 'ENVI', overwrite = T)
 
 tmpdir <- 'C:/Users/adele/Documents/fowlers_veg_timeline/ENVI'
-NameRaster <- 'cons_reflectance_combined_image_16'
+NameRaster <- 'cons_reflectance_combined_image'
 destfiletiff <- file.path(tmpdir,NameRaster)
 
 Input_Image_File <- destfiletiff
-
 
 # Set to FALSE if no mask available
 Input_Mask_File <- FALSE
@@ -723,8 +685,8 @@ Input_Mask_File <- FALSE
 Output_Dir <- 'C:/Users/adele/Documents/fowlers_veg_timeline/biodivmapR/RESULTS'
 
 NDVI_Thresh <- 0.05
-Blue_Thresh <- 1500
-NIR_Thresh <- (0.02*10000)
+Blue_Thresh <- 1500/10000
+NIR_Thresh <- 0.02
 
 # continuum removal is a normalisation procedure which reduces multiplicative effects
 Continuum_Removal <- TRUE
@@ -734,15 +696,15 @@ TypePCA <- 'SPCA'
 # PCA FILTERING:        Set to TRUE if you want second filtering based on PCA outliers to be processed.
 # Slower process
 # Automatically set to FALSE if TypePCA     = 'MNF'
-FilterPCA <- FALSE
+FilterPCA <- TRUE
 
-window_size <- 10
+window_size <- 100
 
 nbCPU <- 10
 MaxRAM <- 0.5
 
 # number of clusters
-nbclusters <- 50
+nbclusters <- 20
 
 Excluded_WL <- NA
 
@@ -765,6 +727,7 @@ PCA_Output <- perform_PCA(Input_Image_File = Input_Image_File,
 
 # path of the raster resulting from dimensionality reduction
 PCA_Files <- PCA_Output$PCA_Files
+
 # path for the updated mask
 Input_Mask_File <- PCA_Output$MaskPath
 
@@ -785,118 +748,8 @@ Kmeans_info <- map_spectral_species(Input_Image_File = Input_Image_File,
 
 Index_Alpha <- c('Shannon')
 
-window_size <- 1250
-map_alpha_div(Input_Image_File = Input_Image_File, 
-              Output_Dir = Output_Dir, 
-              TypePCA = TypePCA,
-              window_size = window_size, 
-              nbCPU = nbCPU, 
-              MaxRAM = MaxRAM,
-              Index_Alpha = Index_Alpha, 
-              nbclusters = nbclusters)
-??map_alpha_div
+window_size <- 100
 
-con_shan_10 <- rast('biodivmapR/RESULTS/cons_reflectance_combined_image_16/SPCA/ALPHA/Shannon_10')
-con_simp_10 <- rast('biodivmapR/RESULTS/cons_reflectance_combined_image_16/SPCA/ALPHA/Simpson_10')
-
-plot(con_shan_10)
-plot(con_simp_10)
-
-con_shan_1250 <- rast('biodivmapR/RESULTS/cons_reflectance_combined_image_16/SPCA/ALPHA/Shannon_1250')
-
-plot(con_shan_1250)
-
-# could i add a red filter for bare ground to 
-# perform_radiometric_filtering via create_mask_from_threshold function?
-
-
-# biodivmapR again - unclipped --------------------------------------------
-
-# load biodivMapR and useful libraries 
-remotes::install_github('cran/dissUtils')
-remotes::install_github('jbferet/biodivMapR', force = T)
-library(biodivMapR)
-library(sf)
-library(stars)
-library(utils)
-library(terra)
-library(raster)
-
-tmpdir <- 'C:/Users/adele/Documents/fowlers_veg_timeline/ENVI'
-NameRaster <- 'cons_reflectance_combined_image_2'
-destfiletiff <- file.path(tmpdir,NameRaster)
-
-Input_Image_File <- destfiletiff
-
-# Set to FALSE if no mask available
-Input_Mask_File <- FALSE
-
-Output_Dir <- 'C:/Users/adele/Documents/fowlers_veg_timeline/biodivmapR/RESULTS'
-
-NDVI_Thresh <- 0.05
-Blue_Thresh <- 1500/10000
-NIR_Thresh <- 0.02
-
-# continuum removal is a normalisation procedure which reduces multiplicative effects
-Continuum_Removal <- TRUE
-
-TypePCA <- 'SPCA'
-
-# PCA FILTERING:        Set to TRUE if you want second filtering based on PCA outliers to be processed.
-# Slower process
-# Automatically set to FALSE if TypePCA     = 'MNF'
-FilterPCA <- FALSE
-
-window_size <- 10
-
-nbCPU <- 10
-MaxRAM <- 0.5
-
-# number of clusters
-nbclusters <- 50
-
-Excluded_WL <- NA
-
-Input_Mask_File <- perform_radiometric_filtering(Image_Path = Input_Image_File, Mask_Path = Input_Mask_File,
-                                                 Output_Dir = Output_Dir, TypePCA = TypePCA,
-                                                 NDVI_Thresh = NDVI_Thresh, Blue_Thresh = Blue_Thresh,
-                                                 NIR_Thresh = NIR_Thresh,
-                                                 Blue = 450,
-                                                 Red = 650,
-                                                 NIR = 840)
-
-PCA_Output <- perform_PCA(Input_Image_File = Input_Image_File, 
-                          Input_Mask_File = FALSE,
-                          Output_Dir = Output_Dir, 
-                          TypePCA = TypePCA, 
-                          FilterPCA = FilterPCA,
-                          nbCPU = nbCPU, 
-                          MaxRAM = MaxRAM, 
-                          Continuum_Removal = Continuum_Removal)
-
-# path of the raster resulting from dimensionality reduction
-PCA_Files <- PCA_Output$PCA_Files
-# path for the updated mask
-Input_Mask_File <- PCA_Output$MaskPath
-
-Sel_PC <- select_PCA_components(Input_Image_File = Input_Image_File,
-                                Output_Dir = Output_Dir, 
-                                PCA_Files = PCA_Output$PCA_Files,
-                                TypePCA = PCA_Output$TypePCA, 
-                                File_Open = TRUE)
-
-Kmeans_info <- map_spectral_species(Input_Image_File = Input_Image_File,
-                                    Input_Mask_File = F,
-                                    Output_Dir = Output_Dir,
-                                    SpectralSpace_Output = PCA_Output, 
-                                    nbclusters = nbclusters, 
-                                    nbCPU = nbCPU, MaxRAM = MaxRAM)
-
-
-
-Index_Alpha <- c('Simpson')
-
-window_size <- 10
 map_alpha_div(Input_Image_File = Input_Image_File, 
               Output_Dir = Output_Dir, 
               TypePCA = TypePCA,
@@ -916,6 +769,8 @@ writeRaster(con_shan_10, 'biodivmapR/RESULTS/cons_reflectance_combined_image_2/S
 writeRaster(con_simp_10, 'biodivmapR/RESULTS/cons_reflectance_combined_image_2/SPCA/ALPHA/Simpson_10.tif', NAflag = 0)
 
 ?writeRaster
+
+
 
 
 # mEd ---------------------------------------------------------------------
@@ -951,46 +806,48 @@ print(mean_distance_entire_raster)
 
 
 # co-efficient of variance metrics ------------------------------------------------
-
-#read in subplot dimensions
+# read in subplot dimensions 
+library(raster)
 subplot_dimensions <- read.csv('data/cons_fishnet_simpson_nd0.csv') %>%
   dplyr::select(c(1:3, 6, 15:20))
 
+# generate subplot IDs
 subplot_ids <- unlist(lapply(1:5, function(i) paste(i, 1:5, sep="_")))
-
 subplot_dimensions <- subplot_dimensions %>% mutate(subplot_id = subplot_ids)
 
+# load raster
 raster_data <- stack('data_out/cons_reflectance_combined_image.tif')
 
+# Function to extract pixel values for each band within the specified extent
 extract_pixel_values <- function(raster_data, min_x, max_x, min_y, max_y) {
-  # define the extent
-  extent <- extent(min_x, max_x, min_y, max_y)
+  # Define the extent
+  ex <- extent(min_x, max_x, min_y, max_y)
   
-  # crop the raster to the extent
-  cropped_raster <- crop(raster_data, extent)
+  # Crop the raster to the extent
+  cropped_raster <- crop(raster_data, ex)
   
-  # extract pixel values
-  pixel_values <- getValues(cropped_raster)
+  # Extract pixel values for each band
+  pixel_values <- as.data.frame(getValues(cropped_raster))
   
-  # remove NA values (if any)
-  pixel_values <- pixel_values[!is.na(pixel_values)]
+  # Remove rows with NA values
+  pixel_values <- na.omit(pixel_values)
   
   return(pixel_values)
 }
 
-# empty df for results
-results <- data.frame(subplot_id = character(), CV = numeric(), stringsAsFactors = FALSE)
-
-# CV function
+# Function to calculate CV for a vector of values
 calculate_cv <- function(values) {
-  if (length(values) > 0) {
-    return(sd(values) / mean(values))
+  if (length(values) > 0 && mean(values) != 0) {
+    return(sd(values) / abs(mean(values)))
   } else {
     return(NA)
   }
 }
 
-# loop through each subplot
+# Data frame to store results
+results <- data.frame(subplot_id = character(), CV = numeric(), stringsAsFactors = FALSE)
+
+# Loop through each subplot
 for (i in 1:nrow(subplot_dimensions)) {
   subplot_id <- subplot_dimensions$subplot_id[i]
   min_x <- subplot_dimensions$Min_x_coord[i]
@@ -998,62 +855,107 @@ for (i in 1:nrow(subplot_dimensions)) {
   min_y <- subplot_dimensions$Min_y_coord[i]
   max_y <- subplot_dimensions$Max_y_coord[i]
   
-  # extract pixel values
+  # Extract pixel values
   pixel_values <- extract_pixel_values(raster_data, min_x, max_x, min_y, max_y)
   
-  # calculate CV
-  cv_value <- calculate_cv(pixel_values)
+  # Calculate CV for each band
+  cv_values <- numeric()
+  for (band in 1:ncol(pixel_values)) {
+    values <- pixel_values[, band]
+    cv_value <- calculate_cv(values)
+    cv_values <- c(cv_values, cv_value)
+  }
   
-  # store the result
-  results <- rbind(results, data.frame(subplot_id = subplot_id, CV = cv_value))
+  # Calculate overall CV for the subplot
+  valid_cvs <- cv_values[!is.na(cv_values)]
+  overall_cv <- if (length(valid_cvs) > 0) {
+    sum(valid_cvs) / length(valid_cvs)
+  } else {
+    NA
+  }
+  
+  # Store the result
+  results <- rbind(results, data.frame(subplot_id = subplot_id, CV = overall_cv))
 }
 
 # Print the results
 print(results)
 
+
+
+
+
+calc.CV <- function(spectral_df, # Dataframe with spectra reflectance values 
+                    areas_of_interest, # What you want to calculate spectral diversity for, here it's plots.
+                    wavelengths, # Cols where spectral reflectance values are
+                    rarefraction, # If TRUE, spectral observations are standardized and randomly resampled. If FALSE, uses all spectral observations as is. 
+                    n # Number of random resampling events, if rarefraction = T.
+){ 
+  CV2 <- spectral_df %>%
+    select(c({{areas_of_interest}}, {{wavelengths}})) %>%
+    group_by({{areas_of_interest}}) %>%
+    summarise_all(~sd(.)/abs(mean(.))) %>%
+    rowwise({{areas_of_interest}}) %>%
+    summarise(CV = sum(c_across(cols = everything()), na.rm = T) / (ncol(.) - sum(is.na(c_across(everything())))))
+}
+
+
+
+
+
+
 ## NOW FOR THE MASKED RASTER 
-install.packages('stars')
-library(stars)
 library(raster)
+library(dplyr)
+library(stars)
 
-mask <- read_stars('biodivmapR/RESULTS/cons_reflectance_combined_image/SPCA/ShadeMask_Update')
-
+# Load the mask and raster data
+mask <- read_stars('biodivmapR/RESULTS/cons_reflectance_combined_image_2/SPCA/ShadeMask_Update')
 mask_raster <- as(mask, "Raster")
 mask_raster[mask_raster == 0] <- NA
 
+raster_data <- stack('data_out/cons_reflectance_combined_image.tif')
 raster_data_masked <- mask(raster_data, mask_raster)
 
-plot(raster_data_masked)
+# Read the subplot dimensions and select necessary columns
+subplot_dimensions <- read.csv('data/cons_fishnet_simpson_nd0.csv') %>%
+  dplyr::select(c(1:3, 6, 15:20))
 
+# Generate subplot IDs
+subplot_ids <- unlist(lapply(1:5, function(i) paste(i, 1:5, sep="_")))
+subplot_dimensions <- subplot_dimensions %>% mutate(subplot_id = subplot_ids)
+
+# Function to extract pixel values for each band within the specified extent
+# Function to extract pixel values from a raster within specified extents
 extract_pixel_values_m <- function(raster_data_masked, min_x, max_x, min_y, max_y) {
-  # define the extent
-  extent <- extent(min_x, max_x, min_y, max_y)
+  # Define the extent
+  ex <- extent(min_x, max_x, min_y, max_y)
   
-  # crop the raster to the extent
-  cropped_raster_m <- crop(raster_data_masked, extent)
+  # Crop the raster to the extent
+  cropped_raster_m <- crop(raster_data_masked, ex)
   
-  # extract pixel values
-  pixel_values_m <- getValues(cropped_raster_m)
+  # Extract pixel values for each band
+  pixel_values_m <- as.data.frame(getValues(cropped_raster_m))
   
-  # remove NA values (if any)
-  pixel_values_m <- pixel_values_m[!is.na(pixel_values_m)]
+  # Remove rows with NA values
+  pixel_values_m <- na.omit(pixel_values_m)
   
   return(pixel_values_m)
 }
 
-# empty df for results
-results_masked <- data.frame(subplot_id = character(), CV = numeric(), stringsAsFactors = FALSE)
-
-# CV function
+# Function to calculate CV for a vector of values
 calculate_cv <- function(values) {
-  if (length(values) > 0) {
-    return(sd(values) / mean(values) * 100)
+  if (length(values) > 0 && mean(values) != 0) {
+    return(sd(values) / abs(mean(values)))
   } else {
     return(NA)
   }
 }
 
-# loop through each subplot
+# Data frame to store results
+results_masked <- data.frame(subplot_id = character(), CV = numeric(), stringsAsFactors = FALSE)
+
+# Loop through each subplot
 for (i in 1:nrow(subplot_dimensions)) {
   subplot_id <- subplot_dimensions$subplot_id[i]
   min_x <- subplot_dimensions$Min_x_coord[i]
@@ -1061,18 +963,33 @@ for (i in 1:nrow(subplot_dimensions)) {
   min_y <- subplot_dimensions$Min_y_coord[i]
   max_y <- subplot_dimensions$Max_y_coord[i]
   
-  # extract pixel values
-  pixel_values_m <- extract_pixel_values(raster_data_masked, min_x, max_x, min_y, max_y)
+  # Extract pixel values
+  pixel_values_m <- extract_pixel_values_m(raster_data_masked, min_x, max_x, min_y, max_y)
   
-  # calculate CV
-  cv_value <- calculate_cv(pixel_values_m)
+  # Calculate CV for each band
+  cv_values <- numeric()
+  for (band in 1:ncol(pixel_values_m)) {
+    values <- pixel_values_m[, band]
+    cv_value <- calculate_cv(values)
+    cv_values <- c(cv_values, cv_value)
+  }
   
-  # store the result
-  results_masked <- rbind(results_masked, data.frame(subplot_id = subplot_id, CV = cv_value))
+  # Calculate overall CV for the subplot
+  valid_cvs <- cv_values[!is.na(cv_values)]
+  overall_cv <- if (length(valid_cvs) > 0) {
+    sum(valid_cvs) / length(valid_cvs)
+  } else {
+    NA
+  }
+  
+  # Store the result
+  results_masked <- rbind(results_masked, data.frame(subplot_id = subplot_id, CV = overall_cv))
 }
 
 # Print the results
 print(results_masked)
+
+
 
 # field diversity ---------------------------------------------------------
 library(vegan)
@@ -1195,7 +1112,6 @@ if ("V1" %in% colnames(community_matrix)) {
   community_matrix <- community_matrix %>% 
     dplyr::select(-V1)
 }
-
 # calculate diversity indices
 shannon_diversity <- diversity(community_matrix[, -1], index = "shannon")
 simpson_diversity <- diversity(community_matrix[, -1], index = "simpson")
@@ -1213,11 +1129,6 @@ cons_nm_simpson_biodivmapR <- read.csv('data/simpson_not_masked_cons.csv') %>%
 
 cons_nm_shannon_biodivmapR <- read.csv('data/shannon_not_masked_cons.csv') %>%
   dplyr::select(16)
-
-
-# need to run the CV code which is further down for this to work! 
-# (the cv and biodivmapRSimpson lines)
-# tidy up your code bishhh
 
 subplot_diversity <- subplot_diversity %>%
   mutate(
@@ -1255,6 +1166,8 @@ ggplot(subplot_diversity_c, aes(x = X_plot, y = Y_plot)) +
   labs(fill = "Simpson's Diversity")
 
 
+
+#plot # of plant obs as size
 df_long <- subplot_diversity %>%
   dplyr::select(shannon_diversity, shannon_biodivmapR, shannon_non_mask_biodivmapR) %>%
   pivot_longer(cols = c(shannon_biodivmapR, shannon_non_mask_biodivmapR), 
@@ -1292,7 +1205,7 @@ cor_test$estimate
 
 
 cv_long <- subplot_diversity %>%
-  select(shannon_diversity, cv, cv_masked) %>%
+  dplyr::select(shannon_diversity, cv, cv_masked) %>%
   pivot_longer(cols = c(cv, cv_masked), 
                names_to = "variable", 
                values_to = "value")
@@ -1310,11 +1223,11 @@ ggplot(data = subplot_diversity, aes(x = shannon_diversity, y = cv)) +
   labs(
     title = "Shannon Diversity vs. CV",
     x = "Shannon Diversity - field",
-    y = "Co-efficient of variance"
+    y = "Co - efficient of variance"
   ) +
   theme_minimal()
 
-model <- lm(cv ~ shannon_diversity, data = subplot_diversity)
+model <- lm(cv_masked ~ shannon_diversity, data = subplot_diversity)
 summary(model)
 
 cor_test <- cor.test(subplot_diversity$shannon_diversity, subplot_diversity$cv)
@@ -1476,3 +1389,7 @@ c_spectral_data_2 <- as.data.frame(c_spectral_data_sf)
 # functional diversity traits? which ones - think, causal, foliar? 
 # check austraits for said traits
 
+library(terra)
+cons_ss_2 <- rast('biodivmapR/RESULTS/cons_reflectance_combined_image_2/SPCA/SpectralSpecies/SpectralSpecies.tif')
+plot(cons_ss_2[[3]])
+plot(cons_ss[[3]])

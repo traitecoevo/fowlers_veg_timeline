@@ -1,44 +1,0 @@
-"0","veg <- get_ausplots(plots_oi, veg.vouchers = T, veg.PI = T)
-"
-"2","Calling the database. Please wait...
-"
-"2",""
-"2","downloading (search) [---------------] (  1%) time: 00:00:00"
-"2",""
-"2","downloading (search) [===============] (100%) time: 00:00:00"
-"2","
-"
-"2","200
-"
-"2","User-supplied Plot_IDs located.
-"
-"2","Calling the database. Please wait...
-"
-"2",""
-"2","downloading (site) [-----------------] (  1%) time: 00:00:00"
-"2",""
-"2","downloading (site) [=================] (100%) time: 00:00:00"
-"2","
-"
-"2","200
-"
-"2","Calling the database. Please wait...
-"
-"2",""
-"2","downloading (veg_voucher) [----------] (  1%) time: 00:00:00"
-"2",""
-"2","downloading (veg_voucher) [==========] (100%) time: 00:00:00"
-"2","
-"
-"2","200
-"
-"2","Calling the database. Please wait...
-"
-"2",""
-"2","downloading (veg_pi) [---------------] (  1%) time: 00:00:00"
-"2",""
-"2","downloading (veg_pi) [===============] (100%) time: 00:00:01"
-"2","
-"
-"2","200
-"
