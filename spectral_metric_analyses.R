@@ -1,6 +1,5 @@
 # refactor 1
 
-
 # load packages -----------------------------------------------------------
 library(raster)
 library(tidyverse) #dplyr masks raster::extract + raster::select
@@ -22,6 +21,14 @@ desired_band_order <- c("blue", "green", "red", "red_edge", "nir")
 ## NOTE: spectral band image tif file names must be named after their band (e.g., blue, nir, etc), 
 #  otherwise change 'desired_band_order' to match file names
 #  should be combined in wavelength order, esp for biodivmapR processes (i.e. as above)
+
+
+# read in fishnet shapefile from fishnets dir, only want geometry col
+subplots <- read_sf('data/fishnets/cons_fishnet.shp') %>%
+  select('geometry')
+
+# apply subplot ids
+subplots$subplot_id <- unlist(lapply(1:5, function(i) paste(i, 1:5, sep="_")))
 
 # loop thru each folder 
 for (folder in folders) {
@@ -53,12 +60,6 @@ for (folder in folders) {
 
 # spectral metric functions by subplot ------------------------------------
 
-subplot_dimensions <- read.csv('data/fishnets/cons_fishnet.csv') 
-
-# generate subplot IDs
-subplot_ids <- unlist(lapply(1:5, function(i) paste(i, 1:5, sep="_")))
-subplot_dimensions <- subplot_dimensions %>% mutate(subplot_id = subplot_ids)
-
 # read in fishnet shapefile from fishnets dir, only want geometry col
 subplots <- read_sf('data/fishnets/cons_fishnet.shp') %>%
   select('geometry')
@@ -81,35 +82,40 @@ ggplot() +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
 
+# load raster
 raster_data <- stack('data_out/combined_rasters/cons_reflectance_combined_image.tif')
+
+# correct names
 names(raster_data) <- c("blue", "green", "red", "red_edge", "nir")
 
 for (i in 1:nrow(subplots)) {
   subplot <- subplots[i, ]
   subplot_id <- subplot$subplot_id
   
-  # Convert the current subplot to a Spatial object
+  # convert subplot to spatial object
   subplot_sp <- as(subplot, "Spatial")
   
-  # Crop and mask the raster using the current subplot
+  # crop and mask the raster using the current subplot
   cropped_raster <- crop(raster_data, subplot_sp)
   masked_raster <- mask(cropped_raster, subplot_sp)
   
-  # Extract pixel values
+  # extract pixel values
   pixel_values <- as.data.frame(getValues(masked_raster))
   
-  # Add subplot ID to pixel values data frame
+  # add subplot id to pixel values df
   pixel_values$subplot_id <- subplot_id
   
-  # Add to the list
+  # add to list
   pixel_values_list[[i]] <- pixel_values
 }
 
-# Combine all pixel values into a single data frame
+# combine all pixel values into single df
 all_pixel_values <- bind_rows(pixel_values_list) %>%
   na.omit() #omits 15012324 NAs?
 
+## CV, CHV, SV metric functions appropriated from https://github.com/ALCrofts/CABO_SVH_Forest_Sites/tree/v1.0
 
+# cv function
 calculate_cv <- function(pixel_values_df, # Dataframe with spectra reflectance values 
                     subplots, # What you want to calculate spectral diversity for, here it's plots.
                     wavelengths # Cols where spectral reflectance values are
@@ -126,6 +132,7 @@ return(cv)
 
 cv_cons <- calculate_cv(all_pixel_values, subplot_id, c('blue':'nir'))
 
+# sv function
 calculate_sv <- function(pixel_values_df, # Dataframe with spectra reflectance values 
                          subplots, # What you want to calculate spectral diversity for, here it's plots.
                          wavelengths # Cols where spectral reflectance values are
@@ -150,6 +157,7 @@ return(sv)
 
 sv_cons <- calculate_sv(all_pixel_values, subplot_id, c('blue':'nir'))
 
+# chv function
 calculate_chv <- function(pixel_values_df,
                           subplots,
                           wavelengths
@@ -180,4 +188,28 @@ calculate_chv <- function(pixel_values_df,
 
 chv_cons <- calculate_chv(all_pixel_values, subplot_id, c('blue':'nir'))
 
+
+# now for ALL images and fishnets ------------------------------------------------------
+
+raster_dir <- 'data_out/combined_rasters'
+
+fishnet_dir <- 'data/fishnets'
+
+# need to do some kind of 'match' to match the prefix of combined_raster files with fishnet files
+
+# wip
+for (raster in raster_dir) {
+  
+  tif_files <- list.file(raster_dir, pattern =  '\\.tif$', full.names = T)
+  
+  rasters <- lapply(tif_files, raster)
+  
+  fishnet_files <- list.file(fishnet_dir, pattern = '\\.shp$', full.names = T)
+  
+  subplots <- lapply(fishnet_file, read_sf) %>% 
+    select('geometry')
+  
+  subplots$subplot_id <- unlist(lapply(1:5, function(i) paste(i, 1:5, sep="_")))
+  
+}
 
