@@ -191,25 +191,65 @@ chv_cons <- calculate_chv(all_pixel_values, subplot_id, c('blue':'nir'))
 
 # now for ALL images and fishnets ------------------------------------------------------
 
-raster_dir <- 'data_out/combined_rasters'
+raster_files <- list.files('data_out/combined_rasters', pattern = '_reflectance_combined_image.tif$', full.names = T)
+subplot_files <- list.files('data/fishnets', pattern = '_fishnet.shp$', full.names = T)
 
-fishnet_dir <- 'data/fishnets'
+all_pixel_values_list <- list()
 
-# need to do some kind of 'match' to match the prefix of combined_raster files with fishnet files
+for (raster_file in raster_files) {
+  
+  # identify the string that represents the site name
+  identifier <- str_extract(basename(raster_file), "^[^_]+")
+  
+  #choose the corresponding subplot file
+  subplot_file <- subplot_files[grep(paste0('^', identifier), basename(subplot_files))]
 
-# wip
-for (raster in raster_dir) {
-  
-  tif_files <- list.file(raster_dir, pattern =  '\\.tif$', full.names = T)
-  
-  rasters <- lapply(tif_files, raster)
-  
-  fishnet_files <- list.file(fishnet_dir, pattern = '\\.shp$', full.names = T)
-  
-  subplots <- lapply(fishnet_file, read_sf) %>% 
+  # read in subplot file and select geometries
+  subplots <- read_sf(subplot_file) %>% 
     select('geometry')
   
+  # apply subplot ids
   subplots$subplot_id <- unlist(lapply(1:5, function(i) paste(i, 1:5, sep="_")))
   
-}
+  # read in raster file
+  raster_data <- stack(raster_file)
+  
+  # apply names - should be saved in wavelength order as per sect 1 of this script
+  names(raster_data) <- c('blue', 'green', 'red', 'red_edge', 'nir')
+  
+  # create empty list
+  pixel_values_list <- list()
+  
+  for (i in 1:nrow(subplots)){
+    
+    # select the i-th subplot and its id
+    subplot <- subplots[i, ]
+    subplot_id <- subplot$subplot_id
+    
+    # convert to spatial object
+    subplot_sp <- as(subplot, "Spatial")
+    
+    # crop and mask raster using current subplot 
+    cropped_raster <- crop(raster_data, subplot_sp)
+    masked_raster <- mask(cropped_raster, subplot_sp)
+    
+    # extract pixel values
+    pixel_values  <- as.data.frame(getValues(masked_raster))
+    
+    # add subplot id to pixel values df
+    pixel_values$subplot_id <- subplot_id
+    
+    #add to list
+    pixel_values_list[[i]] <- pixel_values
+    
+  }
+  # combined all pixel values into one df for current raster
+  all_pixel_values <- bind_rows(pixel_values_list) %>%
+    na.omit()
+  
+  # add to overall list with all raster data pixel values 
+  all_pixel_values_list[[identifier]] <- all_pixel_values
 
+  }
+
+final_pixel_values <- bind_rows(all_pixel_values_list, .id = 'identifier')
