@@ -5,6 +5,7 @@ library(raster)
 library(tidyverse) #dplyr masks raster::extract + raster::select
 library(vegan) # for calculate_sv
 library(geometry) # for calculate_chv
+library(sf)
 
 # combining spectral band images into one tif file  -------------------------------------------------------
 
@@ -253,3 +254,85 @@ for (raster_file in raster_files) {
   }
 
 final_pixel_values <- bind_rows(all_pixel_values_list, .id = 'identifier')
+
+
+
+# apply spectral metrics to pixel value df --------------------------------
+
+## CV, CHV, SV metric functions appropriated from https://github.com/ALCrofts/CABO_SVH_Forest_Sites/tree/v1.0
+# cv function
+calculate_cv <- function(pixel_values_df, subplots, wavelengths) {
+  cv <- pixel_values_df %>%
+    select(c({{subplots}}, {{wavelengths}})) %>%
+    group_by({{subplots}}) %>%
+    summarise_all(~sd(.)/abs(mean(.))) %>%
+    rowwise({{subplots}}) %>%
+    summarise(CV = sum(c_across(cols = everything()), na.rm = T) / (ncol(.) - sum(is.na(c_across(everything())))))
+  
+  return(cv)
+}
+
+# sv function
+calculate_sv <- function(pixel_values_df, subplots, wavelengths) {
+  spectral_points <- pixel_values_df %>%
+    group_by({{subplots}}) %>%
+    summarise(points = n())
+  
+  sv <- pixel_values_df %>%
+    select(c({{wavelengths}}, {{subplots}})) %>%
+    group_by({{subplots}}) %>%
+    summarise_all(~sum((.x - mean(.x))^2)) %>%
+    rowwise({{subplots}}) %>%
+    summarise(SS = sum(c_across(cols = everything()))) %>%
+    left_join(spectral_points) %>%
+    summarise(SV = SS / (points - 1))
+  
+  return(sv)
+}
+
+# chv function
+calculate_chv <- function(pixel_values_df, subplots, wavelengths) {
+  subplot_of_interest <- deparse(substitute(subplots))
+  
+  PCA <- pixel_values_df %>%
+    select(c({{wavelengths}})) %>%
+    rda(scale = F)
+  
+  CHV <- data.frame(PCA$CA$u) %>%
+    select(c(1:3)) %>%
+    cbind({{pixel_values_df}}) %>%
+    select(c('PC1', 'PC2', 'PC3', {{subplots}})) %>%
+    group_split({{subplots}}) %>%
+    set_names(map(., ~unique(.[[subplot_of_interest]]))) %>%
+    map(~convhulln(.x[-4], option = 'FA')) %>%
+    map_dbl('vol') %>%
+    as.data.frame() %>%
+    rownames_to_column('plot_field_id') %>%
+    rename(CHV = '.')
+  
+  rm(subplot_of_interest) 
+  
+  return(CHV)
+}
+
+# create empty list to store results
+results <- list()
+
+# loop through each site (represented as 'identifier' from file name)
+for (identifier in unique(final_pixel_values$identifier)) {
+  
+  # !! --> gets the values of current identifier ('unquotes' it)
+  site_pixel_values <- final_pixel_values %>% filter(identifier == !!identifier)
+  
+  cv <- calculate_cv(site_pixel_values, subplot_id, c('blue', 'green', 'red', 'red_edge', 'nir'))
+  sv <- calculate_sv(site_pixel_values, subplot_id, c('blue', 'green', 'red', 'red_edge', 'nir'))
+  chv <- calculate_chv(site_pixel_values, subplot_id, c('blue', 'green', 'red', 'red_edge', 'nir'))
+  
+  results[[identifier]] <- list(CV = cv, SV = sv, CHV = chv)
+}
+
+# combine into dfs
+combined_cv <- bind_rows(lapply(results, function(x) x$CV), .id = 'identifier')
+combined_sv <- bind_rows(lapply(results, function(x) x$SV), .id = 'identifier')
+combined_chv <- bind_rows(lapply(results, function(x) x$CHV), .id = 'identifier')
+
